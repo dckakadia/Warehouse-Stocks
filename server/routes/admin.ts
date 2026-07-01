@@ -4,14 +4,18 @@ import { execSync, execFile } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import db from '../db.js'
-import { requireUserAdmin } from '../middleware/requireAuth.js'
+import { requireUserAdmin, requireAdmin } from '../middleware/requireAuth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BACKUP_SCRIPT = path.resolve(__dirname, '../../scripts/backup-db.sh')
 
 const router = Router()
-// All admin routes: manager or admin role (admin has full access, same as manager)
-router.use(requireUserAdmin)
+// Admin Panel proper (Users + Backup): admin role only
+router.use('/users', requireAdmin)
+router.use('/backup', requireAdmin)
+// Ledger (Report page) + Inward edit (Warehouse Records tab): manager or admin
+router.use('/ledger', requireUserAdmin)
+router.use('/inward', requireUserAdmin)
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('hex')

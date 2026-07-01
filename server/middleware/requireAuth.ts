@@ -26,9 +26,16 @@ export function requireDelete(req: Request, res: Response, next: NextFunction) {
   next()
 }
 
-// Convenience: require manager or admin role (admin panel — admin has full access, same as manager)
+// Convenience: require manager or admin role (ledgers/inward edit — shared by Report and Warehouse Records)
 export function requireUserAdmin(req: Request, res: Response, next: NextFunction) {
   const user = res.locals.user as TokenPayload | undefined
   if (user?.role !== 'manager' && user?.role !== 'admin') return res.status(403).json({ error: 'Manager or admin role required' })
+  next()
+}
+
+// Convenience: require admin role only (Admin Panel — Users + Backup)
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const user = res.locals.user as TokenPayload | undefined
+  if (user?.role !== 'admin') return res.status(403).json({ error: 'Admin role required' })
   next()
 }

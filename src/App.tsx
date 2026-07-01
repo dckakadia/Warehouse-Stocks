@@ -43,8 +43,8 @@ export default function App() {
   const canViewWarehouse = !user || !!user.can_view_warehouse
   const canViewMaster    = !user || !!user.can_view_master
   const canViewReport    = !user || !!user.can_view_report
-  // Admin panel stays role-based (it manages users) — not a per-user page flag
-  const canViewAdminPanel = user?.role === 'manager' || user?.role === 'admin'
+  // Admin panel stays role-based (it manages users) — not a per-user page flag; admin role only, managers no longer get it
+  const canViewAdminPanel = user?.role === 'admin'
   const allowedViews: View[] = [
     ...(canViewDashboard ? ['dashboard' as const] : []),
     ...(canViewWarehouse ? ['warehouse' as const] : []),
