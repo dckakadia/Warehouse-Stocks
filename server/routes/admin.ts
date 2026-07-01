@@ -168,6 +168,97 @@ router.get('/ledger/customer/:id', (req, res) => {
   res.json({ customer, orders, totals })
 })
 
+/* ── Admin: edit a dispatch order (status + bags, with inventory reconciliation) ── */
+router.put('/ledger/orders/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const { status, bags_dispatched } = req.body as { status?: string; bags_dispatched?: number }
+  const VALID_STATUSES = ['Pending', 'Picked', 'Cancelled']
+
+  try {
+    db.transaction(() => {
+      const order = db.prepare('SELECT * FROM dispatch_orders WHERE id = ?').get(id) as {
+        id: number; customer_id: number; batch_id: number; warehouse_id: number
+        packing_size: string; bags_dispatched: number; status: string
+      } | undefined
+      if (!order) throw new Error('Order not found')
+
+      const newBags = bags_dispatched != null ? Math.round(Number(bags_dispatched)) : order.bags_dispatched
+      const newStatus = status ?? order.status
+      if (!VALID_STATUSES.includes(newStatus)) throw new Error('Invalid status')
+      if (!Number.isInteger(newBags) || newBags <= 0) throw new Error('Bags must be a positive integer')
+
+      const oldBags = order.bags_dispatched
+      const oldStatus = order.status
+      const wasActive = oldStatus === 'Pending' || oldStatus === 'Picked'
+      const isActive  = newStatus === 'Pending' || newStatus === 'Picked'
+
+      // Inventory reconciliation
+      if (wasActive && isActive) {
+        // Both active: adjust for bag count delta
+        const delta = oldBags - newBags
+        if (delta !== 0) {
+          db.prepare(
+            'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+          ).run(delta, order.batch_id, order.warehouse_id, order.packing_size)
+        }
+      } else if (wasActive && !isActive) {
+        // Active → Cancelled: restore old bags
+        db.prepare(
+          'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+        ).run(oldBags, order.batch_id, order.warehouse_id, order.packing_size)
+      } else if (!wasActive && isActive) {
+        // Cancelled → Active: deduct new bags
+        db.prepare(
+          'UPDATE inventory SET quantity_in_stock = quantity_in_stock - ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+        ).run(newBags, order.batch_id, order.warehouse_id, order.packing_size)
+      }
+
+      // dispatch_logs reconciliation
+      if (oldStatus === 'Picked' && newStatus !== 'Picked') {
+        db.prepare('DELETE FROM dispatch_logs WHERE dispatch_order_id = ?').run(id)
+      } else if (oldStatus !== 'Picked' && newStatus === 'Picked') {
+        db.prepare(
+          'INSERT INTO dispatch_logs (dispatch_order_id, customer_id, batch_id, packing_size, bags_dispatched) VALUES (?, ?, ?, ?, ?)'
+        ).run(id, order.customer_id, order.batch_id, order.packing_size, newBags)
+      } else if (oldStatus === 'Picked' && newStatus === 'Picked' && oldBags !== newBags) {
+        db.prepare('UPDATE dispatch_logs SET bags_dispatched = ? WHERE dispatch_order_id = ?').run(newBags, id)
+      }
+
+      db.prepare('UPDATE dispatch_orders SET status = ?, bags_dispatched = ? WHERE id = ?').run(newStatus, newBags, id)
+    })()
+    return res.json({ success: true })
+  } catch (err: unknown) {
+    return res.status(409).json({ error: err instanceof Error ? err.message : 'Unknown error' })
+  }
+})
+
+/* ── Admin: delete a dispatch order (restores inventory if active) ── */
+router.delete('/ledger/orders/:id', (req, res) => {
+  const id = Number(req.params.id)
+  try {
+    db.transaction(() => {
+      const order = db.prepare('SELECT * FROM dispatch_orders WHERE id = ?').get(id) as {
+        id: number; batch_id: number; warehouse_id: number
+        packing_size: string; bags_dispatched: number; status: string
+      } | undefined
+      if (!order) throw new Error('Order not found')
+
+      if (order.status === 'Pending' || order.status === 'Picked') {
+        db.prepare(
+          'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+        ).run(order.bags_dispatched, order.batch_id, order.warehouse_id, order.packing_size)
+      }
+      if (order.status === 'Picked') {
+        db.prepare('DELETE FROM dispatch_logs WHERE dispatch_order_id = ?').run(id)
+      }
+      db.prepare('DELETE FROM dispatch_orders WHERE id = ?').run(id)
+    })()
+    return res.json({ success: true })
+  } catch (err: unknown) {
+    return res.status(409).json({ error: err instanceof Error ? err.message : 'Unknown error' })
+  }
+})
+
 /* ══════════════════════════════════════════════
    SUPPLIER LEDGER
 ══════════════════════════════════════════════ */

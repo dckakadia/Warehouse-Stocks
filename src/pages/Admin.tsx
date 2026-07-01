@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import * as api from '../api'
-import type { AppUser, CustomerSummary, CustomerLedgerDetail, SupplierSummary, SupplierLedgerDetail } from '../api'
+import type { AppUser, CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, SupplierSummary, SupplierLedgerDetail } from '../api'
 import Ic from '../icons'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -46,6 +46,12 @@ function CustomerLedger() {
   const [selected, setSelected] = useState<CustomerLedgerDetail | null>(null)
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [editOrder, setEditOrder] = useState<CustomerOrderRow | null>(null)
+  const [editStatus, setEditStatus] = useState('')
+  const [editBags, setEditBags] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [deleteOrderId, setDeleteOrderId] = useState<number | null>(null)
+  const { add: toast } = useToast()
 
   useEffect(() => {
     api.getLedgerCustomers().then(rows => { setCustomers(rows); setLoadingList(false) })
@@ -62,6 +68,47 @@ function CustomerLedger() {
     const detail = await api.getLedgerCustomer(id)
     setSelected(detail)
     setLoadingDetail(false)
+  }
+
+  const reloadDetail = async () => {
+    if (!selected) return
+    const detail = await api.getLedgerCustomer(selected.customer.id)
+    setSelected(detail)
+  }
+
+  const openEdit = (o: CustomerOrderRow) => {
+    setEditOrder(o)
+    setEditStatus(o.status)
+    setEditBags(String(o.bags_dispatched))
+  }
+
+  const handleEditSave = async () => {
+    if (!editOrder) return
+    setEditSaving(true)
+    try {
+      await api.updateLedgerOrder(editOrder.id, {
+        status: editStatus,
+        bags_dispatched: Number(editBags),
+      })
+      toast('Order updated', 'ok')
+      setEditOrder(null)
+      await reloadDetail()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'err')
+    }
+    setEditSaving(false)
+  }
+
+  const handleDelete = async () => {
+    if (deleteOrderId == null) return
+    try {
+      await api.deleteLedgerOrder(deleteOrderId)
+      toast(`Order DIS-${deleteOrderId} deleted`, 'ok')
+      setDeleteOrderId(null)
+      await reloadDetail()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'err')
+    }
   }
 
   if (selected) {
@@ -107,7 +154,7 @@ function CustomerLedger() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-800/60 border-b border-gray-800">
-                    {['ORDER ID', 'DATE', 'ITEM', 'BATCH', 'PACK', 'BAGS', 'WAREHOUSE', 'STATUS'].map(h => (
+                    {['ORDER ID', 'DATE', 'ITEM', 'BATCH', 'PACK', 'BAGS', 'WAREHOUSE', 'STATUS', 'ACTIONS'].map(h => (
                       <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-400 tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -130,6 +177,18 @@ function CustomerLedger() {
                       <td className="px-4 py-3 text-sm font-bold text-white">{o.bags_dispatched}</td>
                       <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name} · {o.location_city}</td>
                       <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEdit(o)} title="Edit order"
+                            className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors">
+                            <Ic.Pencil />
+                          </button>
+                          <button onClick={() => setDeleteOrderId(o.id)} title="Delete order"
+                            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors">
+                            <Ic.Trash />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -137,6 +196,65 @@ function CustomerLedger() {
             </div>
           )}
         </div>
+
+        {/* Edit order modal */}
+        {editOrder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+              <p className="text-sm font-semibold text-white mb-1">Edit Order <span className="font-mono text-blue-400">DIS-{editOrder.id}</span></p>
+              <p className="text-xs text-gray-400 mb-4">{editOrder.color_name} · {editOrder.batch_number} · {editOrder.packing_size}</p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Bags Dispatched</label>
+                  <input
+                    type="number" min="1" value={editBags}
+                    onChange={e => setEditBags(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Status</label>
+                  <div className="flex gap-2">
+                    {(['Pending', 'Picked', 'Cancelled'] as const).map(s => (
+                      <button key={s} type="button" onClick={() => setEditStatus(s)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                          editStatus === s
+                            ? s === 'Pending'   ? 'bg-amber-900/40 border-amber-600 text-amber-300'
+                            : s === 'Picked'    ? 'bg-emerald-900/40 border-emerald-600 text-emerald-300'
+                            :                    'bg-red-900/40 border-red-600 text-red-300'
+                            : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-500'
+                        }`}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => setEditOrder(null)}
+                  className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleEditSave} disabled={editSaving || !editBags || Number(editBags) < 1}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
+                  {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete confirmation */}
+        {deleteOrderId !== null && (
+          <ConfirmDialog
+            message={`Delete order DIS-${deleteOrderId}? Stock will be restored to inventory if the order was active.`}
+            danger
+            onConfirm={handleDelete}
+            onCancel={() => setDeleteOrderId(null)}
+          />
+        )}
       </div>
     )
   }

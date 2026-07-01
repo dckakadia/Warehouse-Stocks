@@ -361,6 +361,10 @@ export const getLedgerCustomers     = () => request<CustomerSummary[]>('/admin/l
 export const getLedgerCustomer      = (id: number) => request<CustomerLedgerDetail>(`/admin/ledger/customer/${id}`)
 export const getLedgerSuppliers     = () => request<SupplierSummary[]>('/admin/ledger/suppliers')
 export const getLedgerSupplier      = (id: number) => request<SupplierLedgerDetail>(`/admin/ledger/supplier/${id}`)
+export const updateLedgerOrder      = (id: number, body: { status?: string; bags_dispatched?: number }) =>
+  request<{ success: boolean }>(`/admin/ledger/orders/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteLedgerOrder      = (id: number) =>
+  request<{ success: boolean }>(`/admin/ledger/orders/${id}`, { method: 'DELETE' })
 
 export const getAdminUsers   = () => request<AppUser[]>('/admin/users')
 export const createAdminUser = (b: CreateUserBody) =>
