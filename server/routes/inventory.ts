@@ -46,6 +46,8 @@ router.get('/summary', (_req, res) => {
     SELECT
       it.color_name,
       it.item_image,
+      b.batch_image,
+      b.import_date,
       inv.quantity_in_stock,
       inv.packing_size,
       w.id             AS warehouse_id,
@@ -64,6 +66,8 @@ router.get('/summary', (_req, res) => {
   `).all() as {
     color_name: string
     item_image: string | null
+    batch_image: string | null
+    import_date: string
     quantity_in_stock: number
     packing_size: string
     warehouse_id: number
@@ -92,12 +96,22 @@ router.get('/summary', (_req, res) => {
       godown_rack_location: string
     }[]
   }>()
+  // Track the most recently imported batch photo seen per color, to use as the group's
+  // representative thumbnail — falls back to the item's default when no batch has its own photo.
+  const latestBatchPhotoDate = new Map<string, string>()
 
   for (const r of rows) {
     if (!map.has(r.color_name)) {
       map.set(r.color_name, { color_name: r.color_name, item_image: r.item_image, total_bags: 0, total_weight_kg: 0, lines: [] })
     }
     const entry = map.get(r.color_name)!
+    if (r.batch_image) {
+      const latest = latestBatchPhotoDate.get(r.color_name)
+      if (!latest || r.import_date > latest) {
+        latestBatchPhotoDate.set(r.color_name, r.import_date)
+        entry.item_image = r.batch_image
+      }
+    }
     const m = r.packing_size.match(/^(\d+(?:\.\d+)?)\s*kg/i)
     const kgPerBag = m ? parseFloat(m[1]) : 0
     entry.total_bags += r.quantity_in_stock

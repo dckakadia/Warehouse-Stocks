@@ -153,7 +153,7 @@ router.get('/ledger/customer/:id', (req, res) => {
   const orders = db.prepare(`
     SELECT
       d.id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
-      it.color_name, it.item_image,
+      it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
       b.batch_number,
       w.warehouse_name, w.location_city
     FROM dispatch_orders d
@@ -298,7 +298,7 @@ router.get('/ledger/supplier/:id', (req, res) => {
   const batches = db.prepare(`
     SELECT
       b.id AS batch_id, b.batch_number, b.import_date, b.status AS batch_status,
-      it.color_name, it.item_image,
+      it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
       COALESCE(SUM(inv.quantity_in_stock), 0) AS current_stock,
       GROUP_CONCAT(DISTINCT w.warehouse_name)  AS warehouses,
       GROUP_CONCAT(DISTINCT inv.packing_size)  AS pack_sizes
@@ -333,7 +333,9 @@ router.get('/inward', (_req, res) => {
     SELECT
       b.id, b.batch_number, b.import_date, b.status, b.notes,
       b.supplier_id, s.supplier_name,
-      it.id AS item_id, it.color_name, it.item_image
+      it.id AS item_id, it.color_name,
+      COALESCE(b.batch_image, it.item_image) AS item_image,
+      b.batch_image
     FROM batches b
     JOIN items it ON b.item_id = it.id
     LEFT JOIN suppliers s ON b.supplier_id = s.id
@@ -385,9 +387,9 @@ router.put('/inward/batches/:id', (req, res) => {
    existing batch's lines instead of adding on top of them. */
 router.put('/inward/batches/:id/full', (req, res) => {
   const id = Number(req.params.id)
-  const { color_name, batch_number, import_date, notes, supplier_id, item_image, lines } = req.body as {
+  const { color_name, batch_number, import_date, notes, supplier_id, batch_image, lines } = req.body as {
     color_name: string; batch_number: string; import_date: string; notes: string
-    supplier_id: number | null; item_image?: string | null
+    supplier_id: number | null; batch_image?: string | null
     lines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; godown_rack_location: string }[]
   }
 
@@ -410,9 +412,9 @@ router.put('/inward/batches/:id/full', (req, res) => {
     validatedLines.push({ id: l.id, warehouse_id: wid, packing_size: ps, quantity_in_stock: qty, godown_rack_location: l.godown_rack_location ?? '' })
   }
 
-  if (item_image !== undefined && item_image !== null) {
-    if (typeof item_image !== 'string' || !item_image.startsWith('data:image/')) {
-      return res.status(400).json({ error: 'item_image must be a base64 data URI (data:image/...)' })
+  if (batch_image !== undefined && batch_image !== null) {
+    if (typeof batch_image !== 'string' || !batch_image.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'batch_image must be a base64 data URI (data:image/...)' })
     }
   }
 
@@ -421,7 +423,7 @@ router.put('/inward/batches/:id/full', (req, res) => {
       const existingBatch = db.prepare('SELECT id, item_id FROM batches WHERE id = ?').get(id) as { id: number; item_id: number } | undefined
       if (!existingBatch) throw new Error('Batch not found')
 
-      const item = db.prepare('SELECT id FROM items WHERE color_name = ?').get(color_name.trim()) as { id: number } | undefined
+      const item = db.prepare('SELECT id, item_image FROM items WHERE color_name = ?').get(color_name.trim()) as { id: number; item_image: string | null } | undefined
       if (!item) throw new Error(`Unknown color: ${color_name}`)
 
       for (const l of validatedLines) {
@@ -430,12 +432,15 @@ router.put('/inward/batches/:id/full', (req, res) => {
         }
       }
 
-      if (item_image) {
-        db.prepare('UPDATE items SET item_image = ? WHERE id = ?').run(item_image, item.id)
+      // This is the dedicated full editor — the submitted photo is authoritative for this batch,
+      // including explicitly clearing it (batch_image: null). Only backfill the item's own
+      // default image if it never had one, same non-destructive rule as inward creation.
+      if (batch_image && !item.item_image) {
+        db.prepare('UPDATE items SET item_image = ? WHERE id = ?').run(batch_image, item.id)
       }
 
-      db.prepare('UPDATE batches SET item_id=?, batch_number=?, import_date=?, notes=?, supplier_id=? WHERE id=?')
-        .run(item.id, batch_number.trim(), import_date.trim(), notes ?? '', supplier_id ? Number(supplier_id) : null, id)
+      db.prepare('UPDATE batches SET item_id=?, batch_number=?, import_date=?, notes=?, supplier_id=?, batch_image=? WHERE id=?')
+        .run(item.id, batch_number.trim(), import_date.trim(), notes ?? '', supplier_id ? Number(supplier_id) : null, batch_image ?? null, id)
 
       const existingLines = db.prepare('SELECT id, warehouse_id, packing_size FROM inventory WHERE batch_id = ?').all(id) as
         { id: number; warehouse_id: number; packing_size: string }[]

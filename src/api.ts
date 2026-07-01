@@ -275,7 +275,7 @@ export interface InwardBody {
   warehouse_id: number
   supplier_id?: number
   entries: Array<{ packing_size: string; quantity: number }>
-  item_image?: string | null
+  batch_image?: string | null
   notes?: string
 }
 
@@ -406,7 +406,10 @@ export interface InwardBatch {
   supplier_name: string | null
   item_id: number
   color_name: string
+  /** Display value: this batch's own photo, or the item's default if it has none of its own. */
   item_image: string | null
+  /** This batch's own photo only (null if it has none) — use this to initialize an edit form. */
+  batch_image: string | null
   inventory: InwardInventoryLine[]
 }
 
@@ -423,7 +426,7 @@ export const updateInwardBatch = (id: number, body: { batch_number: string; impo
   request<{ success: boolean }>(`/admin/inward/batches/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const updateInwardBatchFull = (id: number, body: {
   color_name: string; batch_number: string; import_date: string; notes: string
-  supplier_id: number | null; item_image?: string | null; lines: InwardBatchFullLine[]
+  supplier_id: number | null; batch_image?: string | null; lines: InwardBatchFullLine[]
 }) => request<{ success: boolean }>(`/admin/inward/batches/${id}/full`, { method: 'PUT', body: JSON.stringify(body) })
 export const updateInwardInventory = (id: number, body: { quantity_in_stock: number; godown_rack_location: string }) =>
   request<{ success: boolean }>(`/admin/inward/inventory/${id}`, { method: 'PUT', body: JSON.stringify(body) })

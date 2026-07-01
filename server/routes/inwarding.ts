@@ -12,7 +12,7 @@ function posInt(v: unknown, name: string): number {
 
 // POST /api/inward — requires can_edit
 router.post('/', requireEdit, (req, res) => {
-  const { color_name, batch_number, import_date, warehouse_id, entries, item_image, notes, supplier_id } = req.body
+  const { color_name, batch_number, import_date, warehouse_id, entries, batch_image, notes, supplier_id } = req.body
 
   if (!color_name?.trim() || !batch_number?.trim() || !import_date?.trim()) {
     return res.status(400).json({ error: 'color_name, batch_number, and import_date are required' })
@@ -41,21 +41,23 @@ router.post('/', requireEdit, (req, res) => {
   }
 
   // Validate image if provided
-  if (item_image !== undefined && item_image !== null) {
-    if (typeof item_image !== 'string' || !item_image.startsWith('data:image/')) {
-      return res.status(400).json({ error: 'item_image must be a base64 data URI (data:image/...)' })
+  if (batch_image !== undefined && batch_image !== null) {
+    if (typeof batch_image !== 'string' || !batch_image.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'batch_image must be a base64 data URI (data:image/...)' })
     }
   }
 
   const inward = db.transaction(() => {
-    const item = db.prepare('SELECT id FROM items WHERE color_name = ?').get(color_name.trim()) as { id: number } | undefined
+    const item = db.prepare('SELECT id, item_image FROM items WHERE color_name = ?').get(color_name.trim()) as { id: number; item_image: string | null } | undefined
     if (!item) throw new Error(`Unknown color: ${color_name}`)
 
     const warehouse = db.prepare('SELECT id FROM warehouses WHERE id = ?').get(wid) as { id: number } | undefined
     if (!warehouse) throw new Error(`Unknown warehouse id: ${wid}`)
 
-    if (item_image) {
-      db.prepare('UPDATE items SET item_image = ? WHERE id = ?').run(item_image, item.id)
+    // The photo belongs to this batch, not the color in general — only backfill the item's
+    // own default image if it has never had one, so it has something to show when browsing colors.
+    if (batch_image && !item.item_image) {
+      db.prepare('UPDATE items SET item_image = ? WHERE id = ?').run(batch_image, item.id)
     }
 
     const resolvedSupplierId = supplier_id ? Number(supplier_id) : null
@@ -80,6 +82,13 @@ router.post('/', requireEdit, (req, res) => {
     const batch = db.prepare(
       'SELECT id FROM batches WHERE item_id = ? AND batch_number = ?'
     ).get(item.id, batch_number.trim()) as { id: number }
+
+    // Non-destructive: this endpoint creates batches / adds stock, it isn't the dedicated photo
+    // editor. Fill the photo only if the batch doesn't already have its own — never overwrite an
+    // existing batch's photo just because a later inward submission carried the color's default image.
+    if (batch_image) {
+      db.prepare('UPDATE batches SET batch_image = COALESCE(batch_image, ?) WHERE id = ?').run(batch_image, batch.id)
+    }
 
     const results = []
     for (const { packing_size, quantity } of validatedEntries) {

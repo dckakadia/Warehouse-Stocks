@@ -30,6 +30,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const [iSupplierId, setISupplierId] = useState<number | ''>('')
   const [iEntries, setIEntries] = useState<Array<{ packSize: string; qty: string }>>([{ packSize: '', qty: '' }])
   const [iImage, setIImage] = useState<string | null>(null)
+  const [iImageIsDefault, setIImageIsDefault] = useState(false)
   const [iNotes, setINotes] = useState('')
   const [iLoading, setILoading] = useState(false)
   const [allItems, setAllItems] = useState<api.Item[]>([])
@@ -51,7 +52,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const [recordsSearch, setRecordsSearch] = useState('')
   const [expandedBatchId, setExpandedBatchId] = useState<number | null>(null)
   const [editBatch, setEditBatch] = useState<InwardBatch | null>(null)
-  const [editBatchForm, setEditBatchForm] = useState({ color_name: '', batch_number: '', import_date: '', notes: '', supplier_id: '', item_image: null as string | null })
+  const [editBatchForm, setEditBatchForm] = useState({ color_name: '', batch_number: '', import_date: '', notes: '', supplier_id: '', batch_image: null as string | null })
   const [editLines, setEditLines] = useState<Array<{ id?: number; warehouse_id: number | ''; packing_size: string; quantity_in_stock: string; godown_rack_location: string }>>([])
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
   const [deleteInvLineId, setDeleteInvLineId] = useState<number | null>(null)
@@ -88,7 +89,10 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const onColorChange = (colorName: string) => {
     setIColor(colorName)
     const item = allItems.find(i => i.color_name === colorName)
+    // This is just the color's default photo, shown as a starting point — it is NOT this batch's
+    // own photo yet. It only becomes this batch's photo if left untouched when the batch is new.
     setIImage(item?.item_image ?? null)
+    setIImageIsDefault(!!item?.item_image)
   }
 
   const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,6 +100,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
     if (!file) return
     const compressed = await compressImage(file)
     setIImage(compressed)
+    setIImageIsDefault(false)
     e.target.value = ''
   }
 
@@ -125,7 +130,9 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
       import_date: b.import_date,
       notes: b.notes ?? '',
       supplier_id: b.supplier_id != null ? String(b.supplier_id) : '',
-      item_image: b.item_image,
+      // This batch's own photo only — not the item's borrowed default — so the editor doesn't
+      // silently "adopt" a fallback default as this batch's permanent photo on save.
+      batch_image: b.batch_image,
     })
     setEditLines(b.inventory.map(l => ({
       id: l.id,
@@ -140,7 +147,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
     const file = e.target.files?.[0]
     if (!file) return
     const compressed = await compressImage(file)
-    setEditBatchForm(f => ({ ...f, item_image: compressed }))
+    setEditBatchForm(f => ({ ...f, batch_image: compressed }))
     e.target.value = ''
   }
 
@@ -156,7 +163,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
         import_date: editBatchForm.import_date,
         notes: editBatchForm.notes,
         supplier_id: editBatchForm.supplier_id ? Number(editBatchForm.supplier_id) : null,
-        item_image: editBatchForm.item_image,
+        batch_image: editBatchForm.batch_image,
         lines: validLines.map(l => ({
           id: l.id,
           warehouse_id: l.warehouse_id as number,
@@ -223,11 +230,11 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
         warehouse_id: iWarehouseId as number,
         supplier_id: iSupplierId !== '' ? iSupplierId as number : undefined,
         entries: validEntries.map(en => ({ packing_size: en.packSize.trim(), quantity: parseInt(en.qty) })),
-        item_image: iImage,
+        batch_image: iImage,
         notes: iNotes.trim(),
       })
       toast('Stock added successfully ✓', 'ok')
-      setIBatch(''); setIWarehouseId(''); setISupplierId(''); setIEntries([{ packSize: '', qty: '' }]); setIImage(null); setINotes('')
+      setIBatch(''); setIWarehouseId(''); setISupplierId(''); setIEntries([{ packSize: '', qty: '' }]); setIImage(null); setIImageIsDefault(false); setINotes('')
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Error', 'err')
     }
@@ -409,11 +416,14 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Item Image</label>
+            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Batch Photo</label>
             {iImage ? (
               <div className="flex items-center gap-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
                 <img src={iImage} alt="Preview" className="w-20 h-20 object-cover rounded-lg border border-gray-600 flex-shrink-0" />
                 <div className="flex flex-col gap-2 min-w-0">
+                  {iImageIsDefault && (
+                    <p className="text-xs text-amber-400">Default photo for this color — tap Gallery/Camera to set this batch's own photo</p>
+                  )}
                   <button type="button" onClick={() => galleryRef.current?.click()}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
                     <Ic.Image /> Gallery
@@ -422,7 +432,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
                     <Ic.Camera /> Camera
                   </button>
-                  <button type="button" onClick={() => setIImage(null)}
+                  <button type="button" onClick={() => { setIImage(null); setIImageIsDefault(false) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg text-xs font-medium transition-colors">
                     <Ic.Trash /> Remove
                   </button>
@@ -674,16 +684,16 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Item Image</label>
-                    {editBatchForm.item_image ? (
+                    <label className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Batch Photo</label>
+                    {editBatchForm.batch_image ? (
                       <div className="flex items-center gap-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
-                        <img src={editBatchForm.item_image} alt="Preview" className="w-16 h-16 object-cover rounded-lg border border-gray-600 flex-shrink-0" />
+                        <img src={editBatchForm.batch_image} alt="Preview" className="w-16 h-16 object-cover rounded-lg border border-gray-600 flex-shrink-0" />
                         <div className="flex flex-col gap-2 min-w-0">
                           <button type="button" onClick={() => editGalleryRef.current?.click()}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
                             <Ic.Image /> Gallery
                           </button>
-                          <button type="button" onClick={() => setEditBatchForm(f => ({ ...f, item_image: null }))}
+                          <button type="button" onClick={() => setEditBatchForm(f => ({ ...f, batch_image: null }))}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg text-xs font-medium transition-colors">
                             <Ic.Trash /> Remove
                           </button>
@@ -692,7 +702,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                     ) : (
                       <button type="button" onClick={() => editGalleryRef.current?.click()}
                         className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors">
-                        <Ic.Image /> Choose from Gallery
+                        <Ic.Image /> Add a photo for this batch
                       </button>
                     )}
                   </div>

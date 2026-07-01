@@ -24,6 +24,7 @@ db.exec(`
     batch_number TEXT NOT NULL,
     import_date  TEXT NOT NULL,
     status       TEXT NOT NULL DEFAULT 'Active' CHECK(status IN ('Active','Depleted')),
+    batch_image  TEXT DEFAULT NULL,
     UNIQUE(item_id, batch_number)
   );
 
@@ -122,6 +123,18 @@ try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_master    INTEGER NOT N
 // Add gst_number to customers/suppliers if not present (existing DB)
 try { db.exec("ALTER TABLE customers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
 try { db.exec("ALTER TABLE suppliers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
+// Add batch_image to batches if not present (existing DB) — one-time backfill from the item's
+// shared image, since that's the best available guess for what each batch used to show before
+// images became batch-specific. Only runs the backfill the moment the column is first added,
+// never again on subsequent restarts (batches created afterwards intentionally start with no image).
+let justAddedBatchImage = false
+try { db.exec("ALTER TABLE batches ADD COLUMN batch_image TEXT DEFAULT NULL"); justAddedBatchImage = true } catch { /* already exists */ }
+if (justAddedBatchImage) {
+  db.exec(`
+    UPDATE batches SET batch_image = (SELECT item_image FROM items WHERE items.id = batches.item_id)
+    WHERE batch_image IS NULL
+  `)
+}
 
 /* ── Seed default admin if no users exist ── */
 const userCount = (db.prepare('SELECT COUNT(*) AS c FROM app_users').get() as { c: number }).c
