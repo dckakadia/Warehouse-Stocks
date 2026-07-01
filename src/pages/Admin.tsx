@@ -51,6 +51,8 @@ function CustomerLedger() {
   const [editBags, setEditBags] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [deleteOrderId, setDeleteOrderId] = useState<number | null>(null)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const { add: toast } = useToast()
 
   useEffect(() => {
@@ -67,6 +69,8 @@ function CustomerLedger() {
     setLoadingDetail(true)
     const detail = await api.getLedgerCustomer(id)
     setSelected(detail)
+    setFromDate('')
+    setToDate('')
     setLoadingDetail(false)
   }
 
@@ -112,30 +116,217 @@ function CustomerLedger() {
   }
 
   if (selected) {
-    const { customer, orders, totals } = selected
+    const { customer, orders } = selected
+
+    const dateFilteredOrders = orders.filter(o => {
+      const d = o.created_at.slice(0, 10)
+      if (fromDate && d < fromDate) return false
+      if (toDate && d > toDate) return false
+      return true
+    })
+
+    const filteredTotals = {
+      total_orders: dateFilteredOrders.length,
+      total_bags: dateFilteredOrders.filter(o => o.status !== 'Cancelled').reduce((s, o) => s + o.bags_dispatched, 0),
+      picked_bags: dateFilteredOrders.filter(o => o.status === 'Picked').reduce((s, o) => s + o.bags_dispatched, 0),
+      pending_bags: dateFilteredOrders.filter(o => o.status === 'Pending').reduce((s, o) => s + o.bags_dispatched, 0),
+      cancelled_bags: dateFilteredOrders.filter(o => o.status === 'Cancelled').reduce((s, o) => s + o.bags_dispatched, 0),
+    }
+
+    const handlePrint = () => {
+      const period = fromDate || toDate
+        ? `${fromDate ? new Date(fromDate).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : 'Start'} — ${toDate ? new Date(toDate).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : 'Today'}`
+        : 'All Time'
+
+      const rows = dateFilteredOrders.map(o => `
+        <tr>
+          <td class="mono">DIS-${o.id}</td>
+          <td>${new Date(o.created_at).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</td>
+          <td class="bold">${o.color_name}</td>
+          <td class="mono sm">${o.batch_number}</td>
+          <td>${o.packing_size}</td>
+          <td class="bold center">${o.bags_dispatched}</td>
+          <td class="sm">${o.warehouse_name}</td>
+          <td><span class="badge badge-${o.status.toLowerCase()}">${o.status}</span></td>
+        </tr>`).join('')
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Customer Ledger — ${customer.customer_name}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; font-size: 11px; line-height: 1.4; }
+  .page { padding: 24px 28px; }
+  /* Header */
+  .header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; border-bottom: 2.5px solid #1a1a1a; margin-bottom: 16px; }
+  .company-name { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #111; }
+  .report-title { font-size: 12px; color: #555; margin-top: 2px; font-weight: 500; }
+  .header-right { text-align: right; }
+  .header-right .label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; }
+  .header-right .value { font-size: 13px; font-weight: 700; margin-top: 1px; }
+  .header-right .sub { font-size: 10px; color: #555; margin-top: 2px; }
+  /* Customer info */
+  .customer-bar { display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+  .customer-name { font-size: 16px; font-weight: 700; }
+  .customer-contact { font-size: 11px; color: #555; margin-top: 2px; }
+  .period-tag { background: #1a1a1a; color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.03em; }
+  /* Summary grid */
+  .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
+  .stat { border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .stat .num { font-size: 20px; font-weight: 800; line-height: 1; }
+  .stat .lbl { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 4px; }
+  .num-green { color: #16a34a; }
+  .num-amber { color: #d97706; }
+  .num-red   { color: #dc2626; }
+  /* Table */
+  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #1a1a1a; }
+  th { padding: 7px 10px; text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #fff; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  tr:nth-child(even) td { background: #fafafa; }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-family: 'Courier New', monospace; }
+  .sm { font-size: 10px; color: #444; }
+  .bold { font-weight: 700; }
+  .center { text-align: center; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
+  .badge-pending   { background: #fef3c7; color: #92400e; }
+  .badge-picked    { background: #d1fae5; color: #065f46; }
+  .badge-cancelled { background: #fee2e2; color: #991b1b; }
+  /* Footer */
+  .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
+  .no-orders { text-align: center; padding: 30px; color: #999; font-style: italic; }
+  @media print {
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    @page { margin: 12mm 14mm; size: A4 landscape; }
+    .page { padding: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="company-name">Glass Beads WMS</div>
+      <div class="report-title">Customer Ledger Report</div>
+    </div>
+    <div class="header-right">
+      <div class="label">Generated</div>
+      <div class="value">${new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</div>
+      <div class="sub">${new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })}</div>
+    </div>
+  </div>
+
+  <div class="customer-bar">
+    <div>
+      <div class="customer-name">${customer.customer_name}</div>
+      ${customer.contact_number ? `<div class="customer-contact">${customer.contact_number}</div>` : ''}
+    </div>
+    <span class="period-tag">${period}</span>
+  </div>
+
+  <div class="summary">
+    <div class="stat"><div class="num">${filteredTotals.total_orders}</div><div class="lbl">Total Orders</div></div>
+    <div class="stat"><div class="num">${filteredTotals.total_bags.toLocaleString()}</div><div class="lbl">Bags (Active)</div></div>
+    <div class="stat"><div class="num num-green">${filteredTotals.picked_bags.toLocaleString()}</div><div class="lbl">Picked</div></div>
+    <div class="stat"><div class="num num-amber">${filteredTotals.pending_bags.toLocaleString()}</div><div class="lbl">Pending</div></div>
+    <div class="stat"><div class="num num-red">${filteredTotals.cancelled_bags.toLocaleString()}</div><div class="lbl">Cancelled</div></div>
+  </div>
+
+  <div class="section-title">Orders (${dateFilteredOrders.length})</div>
+  ${dateFilteredOrders.length === 0
+    ? '<div class="no-orders">No orders for the selected period.</div>'
+    : `<table>
+    <thead>
+      <tr>
+        <th>Order ID</th><th>Date</th><th>Item</th><th>Batch</th><th>Pack Size</th>
+        <th style="text-align:center">Bags</th><th>Warehouse</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`}
+
+  <div class="footer">
+    <span>Glass Beads WMS — Confidential</span>
+    <span>Customer: ${customer.customer_name} · Period: ${period}</span>
+    <span>Page 1</span>
+  </div>
+</div>
+<script>window.onload = () => { window.print(); }</script>
+</body>
+</html>`
+
+      const w = window.open('', '_blank', 'width=1000,height=700')
+      if (!w) { toast('Popup blocked — allow popups for this site', 'err'); return }
+      w.document.write(html)
+      w.document.close()
+    }
+
     return (
       <div>
-        <button onClick={() => setSelected(null)}
-          className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 mb-4 transition-colors">
-          <Ic.Left /> All Customers
-        </button>
-        <div className="mb-5">
-          <div className="flex items-center gap-3 mb-1">
-            <span className="w-9 h-9 rounded-full bg-blue-900/40 border border-blue-700/60 flex items-center justify-center text-blue-300 font-bold text-sm">
-              {customer.customer_name[0].toUpperCase()}
-            </span>
-            <div>
-              <h2 className="text-base font-bold text-white">{customer.customer_name}</h2>
-              <p className="text-xs text-gray-400">{customer.contact_number || 'No contact'}</p>
-            </div>
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={() => setSelected(null)}
+            className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+            <Ic.Left /> All Customers
+          </button>
+          <div className="flex gap-2">
+            <button onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+              <Ic.Print /> Print
+            </button>
+            <button onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-xs font-medium transition-colors">
+              <Ic.FilePdf /> PDF
+            </button>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+
+        {/* Customer header */}
+        <div className="flex items-center gap-3 mb-4">
+          <span className="w-9 h-9 rounded-full bg-blue-900/40 border border-blue-700/60 flex items-center justify-center text-blue-300 font-bold text-sm flex-shrink-0">
+            {customer.customer_name[0].toUpperCase()}
+          </span>
+          <div>
+            <h2 className="text-base font-bold text-white">{customer.customer_name}</h2>
+            <p className="text-xs text-gray-400">{customer.contact_number || 'No contact'}</p>
+          </div>
+        </div>
+
+        {/* Date range filter */}
+        <div className="flex flex-wrap items-center gap-3 mb-5 p-3 bg-gray-900 border border-gray-800 rounded-xl">
+          <span className="text-xs text-gray-400 font-medium">Period:</span>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">From</label>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+              className="px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">To</label>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+              className="px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500" />
+          </div>
+          {(fromDate || toDate) && (
+            <button onClick={() => { setFromDate(''); setToDate('') }}
+              className="text-xs text-gray-500 hover:text-white px-2 py-1 rounded transition-colors">
+              Clear
+            </button>
+          )}
+          {(fromDate || toDate) && (
+            <span className="text-xs text-blue-400 ml-auto">{dateFilteredOrders.length} of {orders.length} orders</span>
+          )}
+        </div>
+
+        {/* Summary stats (filtered) */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
           {[
-            { label: 'Total Orders', value: totals.total_orders, color: 'text-white' },
-            { label: 'Bags Dispatched', value: totals.total_bags, color: 'text-white' },
-            { label: 'Picked', value: totals.picked_bags, color: 'text-emerald-400' },
-            { label: 'Pending', value: totals.pending_bags, color: 'text-amber-400' },
+            { label: 'Orders', value: filteredTotals.total_orders, color: 'text-white' },
+            { label: 'Active Bags', value: filteredTotals.total_bags, color: 'text-white' },
+            { label: 'Picked', value: filteredTotals.picked_bags, color: 'text-emerald-400' },
+            { label: 'Pending', value: filteredTotals.pending_bags, color: 'text-amber-400' },
+            { label: 'Cancelled', value: filteredTotals.cancelled_bags, color: 'text-red-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-center">
               <p className={`text-xl font-bold ${color}`}>{value.toLocaleString()}</p>
@@ -143,12 +334,16 @@ function CustomerLedger() {
             </div>
           ))}
         </div>
+
+        {/* Orders table */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-800">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">All Orders ({orders.length})</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Orders ({dateFilteredOrders.length})</p>
           </div>
-          {orders.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-gray-500">No orders yet</p>
+          {dateFilteredOrders.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-gray-500">
+              {orders.length === 0 ? 'No orders yet' : 'No orders in selected period'}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -160,7 +355,7 @@ function CustomerLedger() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
-                  {orders.map(o => (
+                  {dateFilteredOrders.map(o => (
                     <tr key={o.id} className="hover:bg-gray-800/40 transition-colors">
                       <td className="px-4 py-3 text-xs font-mono text-gray-400">DIS-{o.id}</td>
                       <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{new Date(o.created_at).toLocaleDateString()}</td>
@@ -203,15 +398,11 @@ function CustomerLedger() {
             <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
               <p className="text-sm font-semibold text-white mb-1">Edit Order <span className="font-mono text-blue-400">DIS-{editOrder.id}</span></p>
               <p className="text-xs text-gray-400 mb-4">{editOrder.color_name} · {editOrder.batch_number} · {editOrder.packing_size}</p>
-
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Bags Dispatched</label>
-                  <input
-                    type="number" min="1" value={editBags}
-                    onChange={e => setEditBags(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
-                  />
+                  <input type="number" min="1" value={editBags} onChange={e => setEditBags(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Status</label>
@@ -231,12 +422,9 @@ function CustomerLedger() {
                   </div>
                 </div>
               </div>
-
               <div className="flex gap-2 mt-5">
                 <button onClick={() => setEditOrder(null)}
-                  className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">
-                  Cancel
-                </button>
+                  className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Cancel</button>
                 <button onClick={handleEditSave} disabled={editSaving || !editBags || Number(editBags) < 1}
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
                   {editSaving ? 'Saving…' : 'Save Changes'}
@@ -246,7 +434,6 @@ function CustomerLedger() {
           </div>
         )}
 
-        {/* Delete confirmation */}
         {deleteOrderId !== null && (
           <ConfirmDialog
             message={`Delete order DIS-${deleteOrderId}? Stock will be restored to inventory if the order was active.`}
