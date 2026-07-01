@@ -454,3 +454,70 @@ export const importData = (payload: BackupPayload) =>
 
 export const gdriveStatus  = () => request<{ configured: boolean }>('/admin/backup/gdrive/status')
 export const gdriveBackup  = () => request<{ ok: boolean; message: string }>('/admin/backup/gdrive', { method: 'POST' })
+
+/* ── Daily Report ── */
+export interface DailyInwardLine {
+  warehouse_name: string
+  packing_size: string
+  quantity_in_stock: number
+}
+
+export interface DailyInwardBatch {
+  batch_id: number
+  batch_number: string
+  import_date: string
+  color_name: string
+  item_image: string | null
+  supplier_id: number | null
+  supplier_name: string | null
+  total_bags: number
+  lines: DailyInwardLine[]
+}
+
+export interface DailyOutwardRow {
+  id: number
+  created_at: string
+  packing_size: string
+  bags_dispatched: number
+  status: 'Pending' | 'Picked' | 'Cancelled'
+  customer_name: string
+  contact_number: string
+  batch_number: string
+  color_name: string
+  item_image: string | null
+  warehouse_name: string
+}
+
+export interface DailyTransferRow {
+  id: number
+  transferred_at: string
+  packing_size: string
+  bags: number
+  notes: string
+  from_warehouse_name: string
+  to_warehouse_name: string
+  batch_number: string
+  color_name: string
+  item_image: string | null
+}
+
+export interface DailyReportTotals {
+  inward_batches: number
+  inward_bags: number
+  outward_orders: number
+  outward_bags: number
+  transfer_count: number
+  transfer_bags: number
+}
+
+export interface DailyReportResponse {
+  from: string
+  to: string
+  inward: DailyInwardBatch[]
+  outward: DailyOutwardRow[]
+  transfers: DailyTransferRow[]
+  totals: DailyReportTotals
+}
+
+export const getDailyReport = (from: string, to: string) =>
+  request<DailyReportResponse>(`/reports/daily?from=${from}&to=${to}`)

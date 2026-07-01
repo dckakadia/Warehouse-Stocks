@@ -11,6 +11,7 @@ import dispatchRouter  from './routes/dispatch.js'
 import inwardingRouter from './routes/inwarding.js'
 import mastersRouter   from './routes/masters.js'
 import transfersRouter from './routes/transfers.js'
+import reportsRouter   from './routes/reports.js'
 import adminRouter     from './routes/admin.js'
 
 const app  = express()
@@ -53,6 +54,7 @@ app.use('/api/dispatch',  dispatchRouter)
 app.use('/api/inward',    inwardingRouter)
 app.use('/api/masters',   mastersRouter)
 app.use('/api/transfers', transfersRouter)
+app.use('/api/reports',   reportsRouter)
 app.use('/api/admin',     adminRouter)
 
 /* ── WebSocket broadcast helper ── */

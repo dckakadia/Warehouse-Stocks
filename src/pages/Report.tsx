@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import * as api from '../api'
-import type { CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, SupplierSummary, SupplierLedgerDetail, SupplierBatchRow, TransferRecord } from '../api'
+import type { CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, SupplierSummary, SupplierLedgerDetail, SupplierBatchRow, TransferRecord, DailyReportResponse } from '../api'
 import Ic from '../icons'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Lightbox from '../components/Lightbox'
+import { todayISO } from '../utils'
 
 /* ── Status Badge ── */
 function StatusBadge({ status }: { status: string }) {
@@ -1065,21 +1066,398 @@ function TransferReport({ canEdit, canDelete }: RightsProps) {
   )
 }
 
+/* ── Daily Report ── */
+function DailyReport() {
+  const today = todayISO()
+  const [fromDate, setFromDate] = useState(today)
+  const [toDate, setToDate] = useState(today)
+  const [data, setData] = useState<DailyReportResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const { add: toast } = useToast()
+
+  const load = async (from: string, to: string) => {
+    setLoading(true)
+    try {
+      const res = await api.getDailyReport(from, to)
+      setData(res)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to load daily report', 'err')
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { load(fromDate, toDate) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const applyRange = (from: string, to: string) => {
+    setFromDate(from)
+    setToDate(to)
+    load(from, to)
+  }
+
+  const setToday = () => applyRange(today, today)
+
+  const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
+  const period = fromDate === toDate
+    ? fmtDate(fromDate)
+    : `${fmtDate(fromDate)} — ${fmtDate(toDate)}`
+
+  const handlePrint = () => {
+    if (!data) return
+    const inwardRows = data.inward.map(b => `
+      <tr>
+        <td>${fmtDate(b.import_date)}</td>
+        <td class="bold">${b.color_name}</td>
+        <td class="mono sm">${b.batch_number}</td>
+        <td class="sm">${b.supplier_name ?? '—'}</td>
+        <td class="sm">${b.lines.map(l => `${l.warehouse_name} (${l.packing_size}): ${l.quantity_in_stock}`).join(', ')}</td>
+        <td class="bold center">${b.total_bags}</td>
+      </tr>`).join('')
+
+    const outwardRows = data.outward.map(o => `
+      <tr>
+        <td>${fmtDate(o.created_at)}</td>
+        <td class="bold">${o.color_name}</td>
+        <td class="mono sm">${o.batch_number}</td>
+        <td class="sm">${o.customer_name}</td>
+        <td class="sm">${o.warehouse_name}</td>
+        <td>${o.packing_size}</td>
+        <td class="bold center">${o.bags_dispatched}</td>
+        <td><span class="badge badge-${o.status.toLowerCase()}">${o.status}</span></td>
+      </tr>`).join('')
+
+    const transferRows = data.transfers.map(t => `
+      <tr>
+        <td>${fmtDate(t.transferred_at)}</td>
+        <td class="bold">${t.color_name}</td>
+        <td class="mono sm">${t.batch_number}</td>
+        <td>${t.packing_size}</td>
+        <td class="bold center">${t.bags}</td>
+        <td class="sm">${t.from_warehouse_name}</td>
+        <td class="sm">${t.to_warehouse_name}</td>
+        <td class="sm">${t.notes || ''}</td>
+      </tr>`).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Daily Report</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; font-size: 11px; line-height: 1.4; }
+  .page { padding: 24px 28px; }
+  .header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; border-bottom: 2.5px solid #1a1a1a; margin-bottom: 16px; }
+  .company-name { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #111; }
+  .report-title { font-size: 12px; color: #555; margin-top: 2px; font-weight: 500; }
+  .header-right { text-align: right; }
+  .header-right .label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; }
+  .header-right .value { font-size: 13px; font-weight: 700; margin-top: 1px; }
+  .header-right .sub { font-size: 10px; color: #555; margin-top: 2px; }
+  .period-bar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+  .period-tag { background: #1a1a1a; color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.03em; }
+  .summary { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 18px; }
+  .stat { border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .stat .num { font-size: 18px; font-weight: 800; line-height: 1; }
+  .stat .lbl { font-size: 8px; color: #777; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+  .section { margin-bottom: 20px; }
+  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #1a1a1a; }
+  th { padding: 7px 10px; text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #fff; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  tr:nth-child(even) td { background: #fafafa; }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-family: 'Courier New', monospace; }
+  .sm { font-size: 10px; color: #444; }
+  .bold { font-weight: 700; }
+  .center { text-align: center; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
+  .badge-pending   { background: #fef3c7; color: #92400e; }
+  .badge-picked    { background: #d1fae5; color: #065f46; }
+  .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
+  .no-rows { text-align: center; padding: 20px; color: #999; font-style: italic; }
+  @media print {
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    @page { margin: 12mm 14mm; size: A4 landscape; }
+    .page { padding: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="company-name">Glass Beads WMS</div>
+      <div class="report-title">Daily Stock Movement Report</div>
+    </div>
+    <div class="header-right">
+      <div class="label">Generated</div>
+      <div class="value">${new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</div>
+      <div class="sub">${new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })}</div>
+    </div>
+  </div>
+
+  <div class="period-bar"><span class="period-tag">${period}</span></div>
+
+  <div class="summary">
+    <div class="stat"><div class="num">${data.totals.inward_batches}</div><div class="lbl">Inward Batches</div></div>
+    <div class="stat"><div class="num">${data.totals.inward_bags.toLocaleString()}</div><div class="lbl">Inward Bags</div></div>
+    <div class="stat"><div class="num">${data.totals.outward_orders}</div><div class="lbl">Outward Orders</div></div>
+    <div class="stat"><div class="num">${data.totals.outward_bags.toLocaleString()}</div><div class="lbl">Outward Bags</div></div>
+    <div class="stat"><div class="num">${data.totals.transfer_count}</div><div class="lbl">Transfers</div></div>
+    <div class="stat"><div class="num">${data.totals.transfer_bags.toLocaleString()}</div><div class="lbl">Bags Transferred</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Inward Stock (${data.inward.length})</div>
+    ${data.inward.length === 0 ? '<div class="no-rows">No inward stock in this period.</div>' : `<table>
+      <thead><tr><th>Date</th><th>Item</th><th>Batch</th><th>Supplier</th><th>Breakdown</th><th style="text-align:center">Bags</th></tr></thead>
+      <tbody>${inwardRows}</tbody>
+    </table>`}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Outward Stock (${data.outward.length})</div>
+    ${data.outward.length === 0 ? '<div class="no-rows">No outward stock in this period.</div>' : `<table>
+      <thead><tr><th>Date</th><th>Item</th><th>Batch</th><th>Customer</th><th>Warehouse</th><th>Pack</th><th style="text-align:center">Bags</th><th>Status</th></tr></thead>
+      <tbody>${outwardRows}</tbody>
+    </table>`}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Warehouse Transfers (${data.transfers.length})</div>
+    ${data.transfers.length === 0 ? '<div class="no-rows">No transfers in this period.</div>' : `<table>
+      <thead><tr><th>Date</th><th>Item</th><th>Batch</th><th>Pack</th><th style="text-align:center">Bags</th><th>From</th><th>To</th><th>Notes</th></tr></thead>
+      <tbody>${transferRows}</tbody>
+    </table>`}
+  </div>
+
+  <div class="footer">
+    <span>Glass Beads WMS — Confidential</span>
+    <span>Period: ${period}</span>
+    <span>Page 1</span>
+  </div>
+</div>
+<script>window.onload = () => { window.print(); }</script>
+</body>
+</html>`
+
+    const w = window.open('', '_blank', 'width=1000,height=700')
+    if (!w) { toast('Popup blocked — allow popups for this site', 'err'); return }
+    w.document.write(html)
+    w.document.close()
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3 mb-5 p-3 bg-gray-900 border border-gray-800 rounded-xl">
+        <span className="text-xs text-gray-400 font-medium">Period:</span>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">From</label>
+          <input type="date" value={fromDate} max={toDate} onChange={e => applyRange(e.target.value, toDate)}
+            className="px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500" />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">To</label>
+          <input type="date" value={toDate} min={fromDate} onChange={e => applyRange(fromDate, e.target.value)}
+            className="px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500" />
+        </div>
+        {!(fromDate === today && toDate === today) && (
+          <button onClick={setToday}
+            className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded transition-colors">
+            Today
+          </button>
+        )}
+        <div className="flex gap-2 ml-auto">
+          <button onClick={handlePrint} disabled={!data}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+            <Ic.Print /> Print
+          </button>
+          <button onClick={handlePrint} disabled={!data}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors">
+            <Ic.FilePdf /> PDF
+          </button>
+        </div>
+      </div>
+
+      {loading && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
+
+      {!loading && data && (
+        <>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
+            {[
+              { label: 'Inward Batches', value: data.totals.inward_batches, color: 'text-white' },
+              { label: 'Inward Bags', value: data.totals.inward_bags, color: 'text-emerald-400' },
+              { label: 'Outward Orders', value: data.totals.outward_orders, color: 'text-white' },
+              { label: 'Outward Bags', value: data.totals.outward_bags, color: 'text-amber-400' },
+              { label: 'Transfers', value: data.totals.transfer_count, color: 'text-white' },
+              { label: 'Transfer Bags', value: data.totals.transfer_bags, color: 'text-blue-400' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 text-center">
+                <p className={`text-lg font-bold ${color}`}>{value.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Inward */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-5">
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+              <Ic.Download />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Inward Stock ({data.inward.length})</p>
+            </div>
+            {data.inward.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-gray-500">No inward stock in this period</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-800/60 border-b border-gray-800">
+                      {['DATE', 'ITEM', 'BATCH', 'SUPPLIER', 'BREAKDOWN', 'BAGS'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-400 tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {data.inward.map(b => (
+                      <tr key={b.batch_id} className="hover:bg-gray-800/40 transition-colors">
+                        <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{fmtDate(b.import_date)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {b.item_image
+                              ? <img src={b.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                              : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
+                            <span className="text-sm text-white font-medium">{b.color_name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-mono text-gray-300">{b.batch_number}</td>
+                        <td className="px-4 py-3 text-xs text-gray-400">{b.supplier_name ?? '—'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate" title={b.lines.map(l => `${l.warehouse_name} (${l.packing_size}): ${l.quantity_in_stock}`).join(', ')}>
+                          {b.lines.map(l => `${l.warehouse_name} (${l.packing_size}): ${l.quantity_in_stock}`).join(', ')}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-bold text-emerald-400">{b.total_bags.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Outward */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-5">
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+              <Ic.Upload />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Outward Stock ({data.outward.length})</p>
+            </div>
+            {data.outward.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-gray-500">No outward stock in this period</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-800/60 border-b border-gray-800">
+                      {['DATE', 'ITEM', 'BATCH', 'CUSTOMER', 'WAREHOUSE', 'PACK', 'BAGS', 'STATUS'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-400 tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {data.outward.map(o => (
+                      <tr key={o.id} className="hover:bg-gray-800/40 transition-colors">
+                        <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{fmtDate(o.created_at)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {o.item_image
+                              ? <img src={o.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                              : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
+                            <span className="text-sm text-white font-medium">{o.color_name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-mono text-gray-300">{o.batch_number}</td>
+                        <td className="px-4 py-3 text-xs text-gray-400">{o.customer_name}</td>
+                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name}</td>
+                        <td className="px-4 py-3 text-xs text-gray-300">{o.packing_size}</td>
+                        <td className="px-4 py-3 text-sm font-bold text-amber-400">{o.bags_dispatched.toLocaleString()}</td>
+                        <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Transfers */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+              <Ic.Transfer />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Warehouse Transfers ({data.transfers.length})</p>
+            </div>
+            {data.transfers.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-gray-500">No transfers in this period</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-800/60 border-b border-gray-800">
+                      {['DATE', 'ITEM', 'BATCH', 'PACK', 'BAGS', 'FROM', 'TO', 'NOTES'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-400 tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {data.transfers.map(t => (
+                      <tr key={t.id} className="hover:bg-gray-800/40 transition-colors">
+                        <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{fmtDate(t.transferred_at)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {t.item_image
+                              ? <img src={t.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                              : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
+                            <span className="text-sm text-white font-medium">{t.color_name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-mono text-gray-300">{t.batch_number}</td>
+                        <td className="px-4 py-3 text-xs text-gray-300">{t.packing_size}</td>
+                        <td className="px-4 py-3 text-sm font-bold text-blue-400">{t.bags}</td>
+                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                          <span className="px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-300 border border-blue-800/60">{t.from_warehouse_name}</span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                          <span className="px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-300 border border-purple-800/60">{t.to_warehouse_name}</span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500">{t.notes || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ── Report Page ── */
-type ReportTab = 'customers' | 'suppliers' | 'transfers'
+type ReportTab = 'daily' | 'customers' | 'suppliers' | 'transfers'
 
 export default function ReportPage({ canEdit, canDelete }: RightsProps) {
-  const [reportTab, setReportTab] = useState<ReportTab>('customers')
+  const [reportTab, setReportTab] = useState<ReportTab>('daily')
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-6 w-full">
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-white tracking-tight">Reports</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Customer, supplier, and warehouse transfer reports</p>
+        <p className="text-sm text-gray-400 mt-0.5">Daily movement, customer, supplier, and warehouse transfer reports</p>
       </div>
 
       <div className="flex gap-2 mb-6 flex-wrap">
         {([
+          { key: 'daily',     label: 'Daily Report',      icon: <Ic.Clipboard /> },
           { key: 'customers', label: 'Customer Ledger',    icon: <Ic.User />     },
           { key: 'suppliers', label: 'Supplier Ledger',    icon: <Ic.Truck />    },
           { key: 'transfers', label: 'Warehouse Transfers', icon: <Ic.Transfer /> },
@@ -1091,6 +1469,7 @@ export default function ReportPage({ canEdit, canDelete }: RightsProps) {
         ))}
       </div>
 
+      {reportTab === 'daily' && <DailyReport />}
       {reportTab === 'customers' && <CustomerLedger canEdit={canEdit} canDelete={canDelete} />}
       {reportTab === 'suppliers' && <SupplierLedger canEdit={canEdit} canDelete={canDelete} />}
       {reportTab === 'transfers' && <TransferReport canEdit={canEdit} canDelete={canDelete} />}
