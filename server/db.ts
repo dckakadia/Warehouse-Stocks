@@ -111,6 +111,27 @@ try { db.exec("ALTER TABLE batches ADD COLUMN notes TEXT NOT NULL DEFAULT ''") }
 // Add supplier_id to batches if not present
 try { db.exec("ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id) DEFAULT NULL") } catch { /* already exists */ }
 
+/* ── Seed default admin if no users exist ── */
+const userCount = (db.prepare('SELECT COUNT(*) AS c FROM app_users').get() as { c: number }).c
+if (userCount === 0) {
+  // Import inline to avoid circular deps at module load time
+  const { randomBytes, scryptSync } = await import('crypto')
+  const password = randomBytes(6).toString('base64url')
+  const salt = randomBytes(16).toString('hex')
+  const hash = scryptSync(password, salt, 64).toString('hex')
+  const stored = `${salt}:${hash}`
+  db.prepare(`
+    INSERT INTO app_users (username, password_hash, role, can_view, can_edit, can_delete, is_active)
+    VALUES ('admin', ?, 'manager', 1, 1, 1, 1)
+  `).run(stored)
+  console.log('\n╔══════════════════════════════════════════╗')
+  console.log('║  DEFAULT ADMIN ACCOUNT CREATED            ║')
+  console.log(`║  Username : admin                         ║`)
+  console.log(`║  Password : ${password.padEnd(28)}║`)
+  console.log('║  Change this immediately after first login ║')
+  console.log('╚══════════════════════════════════════════╝\n')
+}
+
 // Remove packing_size CHECK constraint on inventory if present (old schema used IN ('20kg','25kg'))
 const inventorySql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory'").get() as { sql: string } | undefined)?.sql ?? ''
 if (inventorySql.includes("'20kg'") || inventorySql.includes('"20kg"')) {

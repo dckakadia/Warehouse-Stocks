@@ -1,19 +1,33 @@
 import { Router } from 'express'
 import db from '../db.js'
+import { requireEdit } from '../middleware/requireAuth.js'
 
 const router = Router()
 
-// POST /api/transfers — atomically deduct source + upsert destination + log
-router.post('/', (req, res) => {
-  const { from_warehouse_id, to_warehouse_id, batch_id, packing_size, bags, notes = '' } = req.body
-  if (!from_warehouse_id || !to_warehouse_id || !batch_id || !packing_size || !bags) {
-    return res.status(400).json({ error: 'from_warehouse_id, to_warehouse_id, batch_id, packing_size, bags required' })
+function posInt(v: unknown, name: string): number {
+  const n = Number(v)
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} must be a positive integer`)
+  return n
+}
+
+// POST /api/transfers — requires can_edit
+router.post('/', requireEdit, (req, res) => {
+  let from_warehouse_id: number, to_warehouse_id: number, batch_id: number, bags: number
+  try {
+    from_warehouse_id = posInt(req.body.from_warehouse_id, 'from_warehouse_id')
+    to_warehouse_id   = posInt(req.body.to_warehouse_id,   'to_warehouse_id')
+    batch_id          = posInt(req.body.batch_id,           'batch_id')
+    bags              = posInt(req.body.bags,               'bags')
+  } catch (e: unknown) {
+    return res.status(400).json({ error: (e as Error).message })
   }
-  if (Number(from_warehouse_id) === Number(to_warehouse_id)) {
+
+  const { notes = '' } = req.body
+  const packing_size = typeof req.body.packing_size === 'string' ? req.body.packing_size.trim() : ''
+  if (!packing_size) return res.status(400).json({ error: 'packing_size must be a non-empty string' })
+
+  if (from_warehouse_id === to_warehouse_id) {
     return res.status(400).json({ error: 'Source and destination warehouse must differ' })
-  }
-  if (!['20kg', '25kg'].includes(packing_size)) {
-    return res.status(400).json({ error: 'packing_size must be 20kg or 25kg' })
   }
 
   const doTransfer = db.transaction(() => {
@@ -65,7 +79,7 @@ router.post('/', (req, res) => {
   }
 })
 
-// GET /api/transfers — last 50 transfers
+// GET /api/transfers — last 100 transfers
 router.get('/', (_req, res) => {
   const rows = db.prepare(`
     SELECT st.*,
@@ -79,7 +93,7 @@ router.get('/', (_req, res) => {
     JOIN batches b     ON st.batch_id          = b.id
     JOIN items it      ON b.item_id            = it.id
     ORDER BY st.transferred_at DESC
-    LIMIT 50
+    LIMIT 100
   `).all()
   res.json(rows)
 })

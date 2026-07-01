@@ -1,8 +1,11 @@
 import { Router } from 'express'
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto'
 import db from '../db.js'
+import { requireManager } from '../middleware/requireAuth.js'
 
 const router = Router()
+// All admin routes require manager role (requireAuth already applied globally)
+router.use(requireManager)
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('hex')

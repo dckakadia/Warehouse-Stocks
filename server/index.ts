@@ -3,6 +3,8 @@ import cors from 'cors'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createServer } from 'http'
 
+import { requireAuth } from './middleware/requireAuth.js'
+import authRouter      from './routes/auth.js'
 import inventoryRouter from './routes/inventory.js'
 import customersRouter from './routes/customers.js'
 import dispatchRouter  from './routes/dispatch.js'
@@ -18,7 +20,33 @@ const wss  = new WebSocketServer({ server: http })
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
 
-/* ── API routes ── */
+/* ── Request logger ── */
+app.use((req, res, next) => {
+  const start = Date.now()
+  res.on('finish', () => {
+    const ms = Date.now() - start
+    console.log(`${new Date().toISOString()} ${req.method} ${req.path} ${res.statusCode} ${ms}ms`)
+  })
+  next()
+})
+
+/* ── Broadcast middleware — MUST be before routes so res.json is patched first ── */
+app.use((req, res, next) => {
+  const original = res.json.bind(res)
+  res.json = (body) => {
+    if (req.method !== 'GET' && res.statusCode < 300) {
+      broadcast('data_changed', { path: req.path })
+    }
+    return original(body)
+  }
+  next()
+})
+
+/* ── Public routes (no auth) ── */
+app.use('/api/auth', authRouter)
+
+/* ── Protected routes ── */
+app.use('/api', requireAuth)
 app.use('/api/inventory', inventoryRouter)
 app.use('/api/customers', customersRouter)
 app.use('/api/dispatch',  dispatchRouter)
@@ -35,21 +63,13 @@ export function broadcast(event: string, payload?: unknown) {
   })
 }
 
+/* ── WebSocket keepalive ping every 30s ── */
 wss.on('connection', ws => {
   ws.send(JSON.stringify({ event: 'connected' }))
-})
-
-// Monkey-patch dispatch + inward routes to broadcast after mutations
-// (simpler than middleware for this scope)
-app.use((req, res, next) => {
-  const original = res.json.bind(res)
-  res.json = (body) => {
-    if (req.method !== 'GET' && res.statusCode < 300) {
-      broadcast('data_changed', { path: req.path })
-    }
-    return original(body)
-  }
-  next()
+  const ping = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.ping()
+  }, 30_000)
+  ws.on('close', () => clearInterval(ping))
 })
 
 const PORT = process.env.PORT ?? 3001

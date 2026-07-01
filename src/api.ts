@@ -1,16 +1,66 @@
 const BASE = '/api'
 
+/* ── Auth state shared with request() without React coupling ── */
+let _token: string | null = sessionStorage.getItem('wms_token')
+let _onUnauthorized: (() => void) | null = null
+
+export function setAuthToken(token: string | null) {
+  _token = token
+  if (token) sessionStorage.setItem('wms_token', token)
+  else sessionStorage.removeItem('wms_token')
+}
+
+export function getStoredToken(): string | null {
+  return sessionStorage.getItem('wms_token')
+}
+
+export function setUnauthorizedCallback(fn: () => void) {
+  _onUnauthorized = fn
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const tok = _token ?? sessionStorage.getItem('wms_token')
+  if (tok) headers['Authorization'] = `Bearer ${tok}`
+
+  const res = await fetch(BASE + path, { headers, ...options })
+
+  if (res.status === 401) {
+    _onUnauthorized?.()
+    const body = await res.json().catch(() => ({}))
+    throw new Error((body as { error?: string }).error ?? 'Session expired. Please log in again.')
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
   }
   return res.json()
 }
+
+/* ── Auth ── */
+export interface LoginResponse {
+  token: string
+  user: {
+    id: number
+    username: string
+    role: 'manager' | 'helper'
+    can_view: number
+    can_edit: number
+    can_delete: number
+  }
+}
+
+export const login = (username: string, password: string) =>
+  fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  }).then(async res => {
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
+    return body as LoginResponse
+  })
 
 /* ── Inventory ── */
 export const getInventory    = () => request<InventoryRow[]>('/inventory')
@@ -48,8 +98,8 @@ export const getTransfers = () =>
 
 /* ── Masters ── */
 export const getItems      = () => request<Item[]>('/masters/items')
-export const createItem    = (b: Omit<Item,'id'>) => request<Item>('/masters/items', { method: 'POST', body: JSON.stringify(b) })
-export const updateItem    = (id: number, b: Omit<Item,'id'>) => request<{success:boolean}>(`/masters/items/${id}`, { method: 'PUT', body: JSON.stringify(b) })
+export const createItem    = (b: Omit<Item,'id'|'batch_numbers'>) => request<Item>('/masters/items', { method: 'POST', body: JSON.stringify(b) })
+export const updateItem    = (id: number, b: Omit<Item,'id'|'batch_numbers'>) => request<{success:boolean}>(`/masters/items/${id}`, { method: 'PUT', body: JSON.stringify(b) })
 export const deleteItem    = (id: number) => request<{success:boolean}>(`/masters/items/${id}`, { method: 'DELETE' })
 
 export const getMasterCustomers = () => request<Customer[]>('/masters/customers')
