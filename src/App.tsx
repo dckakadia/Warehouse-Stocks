@@ -7,7 +7,9 @@ import Ic from './icons'
 import { useAuth } from './hooks/useAuth'
 import { useWSSync } from './hooks/useWSSync'
 import { useToast } from './hooks/useToast'
+import { useAppUpdate } from './hooks/useAppUpdate'
 import Login from './components/Login'
+import UpdateBanner from './components/UpdateBanner'
 import AddCustomerModal from './components/AddCustomerModal'
 import CreateDispatchModal from './components/CreateDispatchModal'
 import Dashboard from './pages/Dashboard'
@@ -19,6 +21,7 @@ type View = 'dashboard' | 'warehouse' | 'master' | 'admin'
 
 export default function App() {
   const { user, login, logout } = useAuth()
+  const updateInfo = useAppUpdate()
   const [view, setView] = useState<View>('dashboard')
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [showDispatch, setShowDispatch] = useState(false)
@@ -56,6 +59,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+      {updateInfo && <UpdateBanner version={updateInfo.version} apkUrl={updateInfo.apk_url} />}
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-40" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">

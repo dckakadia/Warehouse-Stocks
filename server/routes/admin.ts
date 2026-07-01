@@ -1,7 +1,13 @@
 import { Router } from 'express'
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto'
+import { execSync, execFile } from 'child_process'
+import { fileURLToPath } from 'url'
+import path from 'path'
 import db from '../db.js'
 import { requireManager } from '../middleware/requireAuth.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const BACKUP_SCRIPT = path.resolve(__dirname, '../../scripts/backup-db.sh')
 
 const router = Router()
 // All admin routes require manager role (requireAuth already applied globally)
@@ -215,6 +221,96 @@ router.get('/ledger/supplier/:id', (req, res) => {
   `).get(id)
 
   res.json({ supplier, batches, totals })
+})
+
+/* ══════════════════════════════════════════════
+   GOOGLE DRIVE BACKUP
+══════════════════════════════════════════════ */
+
+router.get('/backup/gdrive/status', (_req, res) => {
+  try {
+    const remotes = execSync('rclone listremotes 2>/dev/null', { timeout: 5000 }).toString()
+    const configured = remotes.includes('gdrive:')
+    return res.json({ configured })
+  } catch {
+    return res.json({ configured: false })
+  }
+})
+
+router.post('/backup/gdrive', (_req, res) => {
+  let configured = false
+  try {
+    const remotes = execSync('rclone listremotes 2>/dev/null', { timeout: 5000 }).toString()
+    configured = remotes.includes('gdrive:')
+  } catch { /* rclone not installed */ }
+
+  if (!configured) {
+    return res.status(400).json({
+      ok: false,
+      message: 'Google Drive not configured. Run scripts/setup-gdrive.sh on the server first.',
+    })
+  }
+
+  execFile('bash', [BACKUP_SCRIPT], { timeout: 120_000 }, (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ ok: false, message: stderr || err.message })
+    return res.json({ ok: true, message: 'Backup uploaded to Google Drive successfully', output: stdout })
+  })
+})
+
+/* ══════════════════════════════════════════════
+   EXPORT / IMPORT (disaster recovery)
+══════════════════════════════════════════════ */
+
+const EXPORT_TABLES = [
+  'items', 'warehouses', 'suppliers', 'customers',
+  'batches', 'inventory',
+  'dispatch_orders', 'dispatch_logs', 'stock_transfers',
+  'app_users',
+] as const
+
+router.get('/backup/export', (_req, res) => {
+  const data: Record<string, unknown[]> = {}
+  for (const table of EXPORT_TABLES) {
+    data[table] = db.prepare(`SELECT * FROM ${table}`).all()
+  }
+  const payload = { exported_at: new Date().toISOString(), schema_version: 1, data }
+  const date = new Date().toISOString().split('T')[0]
+  res.setHeader('Content-Disposition', `attachment; filename="warehouse-backup-${date}.json"`)
+  res.json(payload)
+})
+
+router.post('/backup/import', (req, res) => {
+  const { data } = req.body as { data: Record<string, Record<string, unknown>[]> }
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Invalid backup file' })
+
+  db.transaction(() => {
+    db.pragma('foreign_keys = OFF')
+
+    // Delete in reverse dependency order
+    for (const table of [...EXPORT_TABLES].reverse()) {
+      if (data[table] !== undefined) db.prepare(`DELETE FROM ${table}`).run()
+    }
+
+    // Reset autoincrement counters
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN (" +
+      EXPORT_TABLES.map(() => '?').join(',') + ")"
+    ).run(...EXPORT_TABLES)
+
+    // Insert in dependency order
+    for (const table of EXPORT_TABLES) {
+      const rows = data[table]
+      if (!rows?.length) continue
+      const cols = Object.keys(rows[0])
+      const stmt = db.prepare(
+        `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+      )
+      for (const row of rows) stmt.run(cols.map(c => row[c]))
+    }
+
+    db.pragma('foreign_keys = ON')
+  })()
+
+  return res.json({ success: true, tables: Object.keys(data) })
 })
 
 export default router

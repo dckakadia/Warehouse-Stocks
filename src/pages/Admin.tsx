@@ -324,7 +324,203 @@ const EMPTY_USER_FORM = {
   is_active: true,
 }
 
-type AdminTab = 'users' | 'customers' | 'suppliers'
+type AdminTab = 'users' | 'customers' | 'suppliers' | 'backup'
+
+/* ── Backup & Restore Panel ── */
+function BackupPanel() {
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importConfirm, setImportConfirm] = useState<api.BackupPayload | null>(null)
+  const [driveConfigured, setDriveConfigured] = useState<boolean | null>(null)
+  const [driveBacking, setDriveBacking] = useState(false)
+  const { add: toast } = useToast()
+
+  useEffect(() => {
+    api.gdriveStatus().then(s => setDriveConfigured(s.configured)).catch(() => setDriveConfigured(false))
+  }, [])
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const payload = await api.exportData()
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `warehouse-backup-${new Date().toISOString().split('T')[0]}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast('Backup downloaded', 'ok')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Export failed', 'err')
+    }
+    setExporting(false)
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string) as api.BackupPayload
+        if (!parsed.data || !parsed.exported_at) throw new Error('Invalid backup file format')
+        setImportConfirm(parsed)
+      } catch {
+        toast('Invalid backup file — must be a JSON export from this app', 'err')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const handleImport = async () => {
+    if (!importConfirm) return
+    setImporting(true)
+    try {
+      const result = await api.importData(importConfirm)
+      toast(`Restored ${result.tables.length} tables successfully`, 'ok')
+      setImportConfirm(null)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Import failed', 'err')
+    }
+    setImporting(false)
+  }
+
+  const handleDriveBackup = async () => {
+    setDriveBacking(true)
+    try {
+      const result = await api.gdriveBackup()
+      toast(result.message, 'ok')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Drive backup failed', 'err')
+    }
+    setDriveBacking(false)
+  }
+
+  const exportedDate = importConfirm?.exported_at
+    ? new Date(importConfirm.exported_at).toLocaleString()
+    : null
+
+  const tableCount = importConfirm ? Object.keys(importConfirm.data).length : 0
+  const rowCount   = importConfirm ? Object.values(importConfirm.data).reduce((s, r) => s + r.length, 0) : 0
+
+  return (
+    <div className="space-y-5">
+      {/* Export */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-lg bg-blue-900/30 border border-blue-800/40 flex items-center justify-center text-blue-400 flex-shrink-0">
+            <Ic.Download />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white mb-0.5">Export Backup</p>
+            <p className="text-xs text-gray-400 mb-3">
+              Downloads a full JSON snapshot of all stock, batches, customers, suppliers, dispatch orders, and users
+              (including item images). Use this to back up your data before major changes or as an off-site copy.
+            </p>
+            <button onClick={handleExport} disabled={exporting}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors">
+              <Ic.Download /> {exporting ? 'Exporting…' : 'Download Backup JSON'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Import */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-lg bg-amber-900/30 border border-amber-800/40 flex items-center justify-center text-amber-400 flex-shrink-0">
+            <Ic.Upload />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white mb-0.5">Restore from Backup</p>
+            <p className="text-xs text-gray-400 mb-3">
+              Restores all data from a previously exported JSON file.{' '}
+              <span className="text-red-400 font-medium">This will erase and replace all current data.</span>{' '}
+              Use only for disaster recovery.
+            </p>
+            <label className="flex items-center gap-1.5 px-4 py-2 bg-amber-700/80 hover:bg-amber-600/80 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer w-fit">
+              <Ic.Upload /> Choose Backup File
+              <input type="file" accept=".json" className="hidden" onChange={handleFileSelect} />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* Google Drive */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-lg bg-emerald-900/30 border border-emerald-800/40 flex items-center justify-center text-emerald-400 flex-shrink-0">
+            <Ic.Cloud />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <p className="text-sm font-semibold text-white">Google Drive Backup</p>
+              {driveConfigured === true  && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-700/40">Connected</span>}
+              {driveConfigured === false && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-500 border border-gray-700">Not configured</span>}
+            </div>
+
+            {driveConfigured === true ? (
+              <>
+                <p className="text-xs text-gray-400 mb-3">
+                  Google Drive is connected. Click below to upload a backup now, or enable the daily 2am auto-backup via cron.
+                </p>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <button onClick={handleDriveBackup} disabled={driveBacking}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors">
+                    <Ic.Cloud /> {driveBacking ? 'Uploading…' : 'Backup to Drive Now'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-1">Enable daily 2am auto-backup — add to server crontab:</p>
+                <div className="bg-gray-950 rounded-lg px-3 py-2 font-mono text-xs text-emerald-400 overflow-x-auto">
+                  0 2 * * * /home/dckakadia/warehouse-stocks/scripts/backup-db.sh &gt;&gt; /home/dckakadia/warehouse-stocks/backups/backup.log 2&gt;&amp;1
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-gray-400 mb-3">
+                  Run this once on the server to connect Google Drive. Backups will then upload automatically.
+                </p>
+                <div className="bg-gray-950 rounded-lg px-3 py-2 font-mono text-xs text-emerald-400 overflow-x-auto">
+                  bash /home/dckakadia/warehouse-stocks/scripts/setup-gdrive.sh
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Reload this page after setup to confirm the connection.</p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Import confirmation dialog */}
+      {importConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-gray-900 border border-amber-700/60 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+            <p className="text-sm font-semibold text-white mb-1">Restore from backup?</p>
+            <p className="text-xs text-gray-400 mb-3">
+              Backup from <span className="text-amber-300">{exportedDate}</span><br />
+              Contains <span className="text-white font-medium">{rowCount}</span> records across{' '}
+              <span className="text-white font-medium">{tableCount}</span> tables.
+            </p>
+            <p className="text-xs text-red-400 mb-4 font-medium">
+              All current data will be permanently replaced.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setImportConfirm(null)}
+                className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleImport} disabled={importing}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
+                {importing ? 'Restoring…' : 'Yes, Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function AdminPage() {
   const [adminTab, setAdminTab] = useState<AdminTab>('users')
@@ -415,6 +611,7 @@ export default function AdminPage() {
           { key: 'users',     label: 'Users',           icon: <Ic.Shield /> },
           { key: 'customers', label: 'Customer Ledger', icon: <Ic.User />   },
           { key: 'suppliers', label: 'Supplier Ledger', icon: <Ic.Truck />  },
+          { key: 'backup',    label: 'Backup',          icon: <Ic.Download /> },
         ] as { key: AdminTab; label: string; icon: React.ReactNode }[]).map(t => (
           <button key={t.key} onClick={() => setAdminTab(t.key)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${adminTab === t.key ? 'bg-rose-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
@@ -425,6 +622,7 @@ export default function AdminPage() {
 
       {adminTab === 'customers' && <CustomerLedger />}
       {adminTab === 'suppliers' && <SupplierLedger />}
+      {adminTab === 'backup'    && <BackupPanel />}
 
       {adminTab === 'users' && <>
       <div>
@@ -434,13 +632,15 @@ export default function AdminPage() {
             <h2 className="text-base font-semibold text-white">Users</h2>
             <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">{users.length}</span>
           </div>
-          {form === null
-            ? <button onClick={openCreate}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors">
-                <Ic.Plus /> Create User
-              </button>
-            : <button onClick={() => setForm(null)} className="text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg bg-gray-800 transition-colors">Cancel</button>
-          }
+          <div className="flex items-center gap-2">
+            {form !== null && (
+              <button onClick={() => setForm(null)} className="text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg bg-gray-800 transition-colors">Cancel</button>
+            )}
+            <button onClick={openCreate}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors">
+              <Ic.Plus /> Add User
+            </button>
+          </div>
         </div>
 
         {form !== null && (

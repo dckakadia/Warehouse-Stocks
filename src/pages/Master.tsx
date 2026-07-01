@@ -180,19 +180,12 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
       {tab === 'items' && (
         <MasterSection<api.Item>
           title="Items" icon={<Ic.Hash />} items={items}
-          columns={['ITEMS NAME', 'BATCH NUMBERS']}
+          columns={['ITEMS NAME']}
           emptyForm={{ color_name: '', hsn_code: '7018.90.00', item_image: null, batch_numbers: '' }}
           form={itemForm} setForm={setItemForm}
           canEdit={canEdit} canDelete={canDelete}
           renderRow={item => [
             <span className="font-medium">{item.color_name}</span>,
-            <span className="flex flex-wrap gap-1">
-              {item.batch_numbers
-                ? item.batch_numbers.split(', ').map(bn => (
-                    <span key={bn} className="px-1.5 py-0.5 rounded text-xs font-mono bg-gray-800 text-gray-300 border border-gray-700">{bn}</span>
-                  ))
-                : <span className="text-gray-500 text-xs italic">No batches</span>}
-            </span>,
           ]}
           renderForm={(f, set) => (
             <div>

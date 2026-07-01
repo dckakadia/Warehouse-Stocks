@@ -1,7 +1,7 @@
 # Warehouse-Stocks WMS — Project Context
 
 ## What this app is
-Glass Beads Warehouse Management System (WMS). React + TypeScript frontend, Express + SQLite backend, served via nginx. Runs as a mobile-friendly web app (also has Capacitor Android wrapper).
+Glass Beads Warehouse Management System (WMS). React + TypeScript frontend, Express + SQLite backend, served via nginx. Runs as a mobile-friendly web app + Capacitor Android APK.
 
 ## Tech stack
 - **Frontend:** React 19, TypeScript, Tailwind CSS, Vite
@@ -9,6 +9,7 @@ Glass Beads Warehouse Management System (WMS). React + TypeScript frontend, Expr
 - **Realtime:** WebSocket broadcast on all mutations
 - **Process manager:** PM2 (`warehouse-api`, id 4)
 - **Serving:** nginx on port 8088 → static `dist/` + proxies `/api` and `/ws` to Node on port 3005
+- **Mobile:** Capacitor Android wrapper — app loads from live server URL (http://116.74.77.22:8088)
 
 ## Production server
 - **IP:** 116.74.77.22
@@ -23,6 +24,7 @@ Glass Beads Warehouse Management System (WMS). React + TypeScript frontend, Expr
 2. Build frontend: `npm run build` (outputs to `dist/`)
 3. Type-check backend: `npx tsc --project tsconfig.node.json --noEmit`
 4. Sync dist: `rsync -avz --delete dist/ dckakadia@116.74.77.22:/home/dckakadia/warehouse-stocks/dist/`
+   - **WARNING:** `--delete` removes `dist/updates/` — re-upload APK after if needed
 5. Sync server root files: `rsync -avz server/auth.ts server/db.ts server/index.ts dckakadia@116.74.77.22:/home/dckakadia/warehouse-stocks/server/`
 6. Sync middleware: `rsync -avz server/middleware/requireAuth.ts dckakadia@116.74.77.22:/home/dckakadia/warehouse-stocks/server/middleware/`
 7. Sync routes: `rsync -avz server/routes/ dckakadia@116.74.77.22:/home/dckakadia/warehouse-stocks/server/routes/`
@@ -34,7 +36,7 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 
 ## Authentication system (added July 2026)
 - **Token format:** HMAC-SHA256 signed — `base64url(payload) + "." + base64url(sig)`
-- **Secret:** `server/.auth_secret` — generated on first run, persists across restarts (do NOT commit this file)
+- **Secret:** `server/.auth_secret` — generated on first run, persists across restarts (do NOT commit)
 - **TTL:** 24 hours
 - **Storage:** sessionStorage (NOT localStorage — shared warehouse devices)
 - **Login:** `POST /api/auth/login` — rate limited 5 attempts / 15 min / IP (in-memory)
@@ -42,6 +44,35 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - **Rights middlewares:** `requireEdit`, `requireDelete`, `requireManager` in server/middleware/requireAuth.ts
 - **Default admin:** Seeded on first run when `app_users` table is empty; credentials printed to PM2 logs
 - **Password hashing:** Node built-in `crypto.scryptSync` + random salt (no bcrypt dependency)
+- **Database wiped:** 2026-07-01 — fresh start. New default admin credentials were printed to PM2 logs at that time.
+
+## APK auto-update system (added July 2026)
+- `src/version.ts` — `APP_VERSION` constant embedded in the JS bundle
+- `public/version.json` — served at `/version.json`; checked by running APKs on launch
+- `dist/updates/app-latest.apk` — served at `/updates/app-latest.apk`; APKs download this for updates
+- `src/hooks/useAppUpdate.ts` — polls `/version.json` 3s after launch (native only); shows banner if newer
+- `src/components/UpdateBanner.tsx` — blue banner at top of screen with "Update" button
+- **Release command:** `bash scripts/release-apk.sh <version>` — bumps version, builds APK, deploys everything
+- Java 21 required for Gradle: `JAVA_HOME=/opt/homebrew/opt/openjdk@21`
+
+## Backup & Restore system (added July 2026)
+- **Admin page → Backup tab** has three sections:
+  1. **Export:** Downloads full JSON snapshot (all tables + item images as base64)
+  2. **Import:** Upload JSON to restore all data (wipes current data first — confirmation required)
+  3. **Google Drive:** Live status + "Backup to Drive Now" button + setup instructions
+- **Server endpoints:**
+  - `GET /api/admin/backup/export` — full JSON export
+  - `POST /api/admin/backup/import` — restore from JSON body
+  - `GET /api/admin/backup/gdrive/status` — checks if rclone gdrive: remote is configured
+  - `POST /api/admin/backup/gdrive` — runs backup-db.sh which uploads to Drive
+- **Scripts:**
+  - `scripts/backup-db.sh` — SQLite dump → gzip locally → upload to Google Drive if rclone configured
+  - `scripts/setup-gdrive.sh` — one-time interactive setup (installs rclone, OAuth to Google, creates folder)
+  - `scripts/release-apk.sh <ver>` — full APK release pipeline
+- **Google Drive setup (run once on server):**
+  ```bash
+  bash /home/dckakadia/warehouse-stocks/scripts/setup-gdrive.sh
+  ```
 
 ## Key source files
 ### Backend
@@ -50,22 +81,24 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - `server/auth.ts` — Token sign/verify utilities, `AUTH_SECRET` loading
 - `server/middleware/requireAuth.ts` — `requireAuth`, `requireEdit`, `requireDelete`, `requireManager`
 - `server/routes/auth.ts` — POST /api/auth/login + logout
-- `server/routes/admin.ts` — User CRUD (manager-only)
+- `server/routes/admin.ts` — User CRUD + ledgers + export/import + Google Drive backup
 - `server/routes/masters.ts` — Items, suppliers, customers, warehouses CRUD
 - `server/routes/inwarding.ts` — Batch inward (all-or-nothing validation)
 - `server/routes/transfers.ts` — Inter-warehouse stock transfers
 - `server/routes/dispatch.ts` — Dispatch orders
-- `scripts/backup-db.sh` — Daily SQLite backup via `.dump | gzip`, 14-day rotation
 
 ### Frontend
-- `src/App.tsx` — Root component: login gate, header, nav, view routing (~130 lines)
+- `src/App.tsx` — Root component: login gate, header, nav, view routing, update banner
 - `src/api.ts` — All API calls + TypeScript types; auth token injection
+- `src/version.ts` — `APP_VERSION` constant (bump before each APK release)
 - `src/hooks/useAuth.ts` — Login/logout state, sessionStorage token management
 - `src/hooks/useWSSync.ts` — WebSocket connection + refresh trigger on broadcast
 - `src/hooks/useToast.ts` — Toast notification queue
+- `src/hooks/useAppUpdate.ts` — APK update checker (native only, polls /version.json)
 - `src/utils.ts` — W_COLORS, whColor, todayISO, parseKgPerBag, compressImage
-- `src/icons.tsx` — All SVG icons in `Ic` object
+- `src/icons.tsx` — All SVG icons in `Ic` object (Download, Upload, Cloud added July 2026)
 - `src/components/Login.tsx` — Login form with password strength indicator
+- `src/components/UpdateBanner.tsx` — APK update notification banner
 - `src/components/ConfirmDialog.tsx` — Reusable confirmation modal (danger/neutral)
 - `src/components/Lightbox.tsx` — Image lightbox
 - `src/components/AddCustomerModal.tsx` — Add customer modal
@@ -73,10 +106,10 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - `src/pages/Dashboard.tsx` — Global stock summary, accordion by item
 - `src/pages/Warehouse.tsx` — Picking list (with search), inward, transfer tabs
 - `src/pages/Master.tsx` — CRUD for items, customers, suppliers, warehouses
-- `src/pages/Admin.tsx` — User management (manager-only)
+- `src/pages/Admin.tsx` — User management + ledgers + Backup tab (manager-only)
 
 ## Database schema (SQLite, file: warehouse.db)
-- `items` — color/item master (color_name, hsn_code, item_image)
+- `items` — color/item master (color_name, hsn_code, item_image as base64)
 - `batches` — batch records per item
 - `warehouses` — warehouse master
 - `inventory` — stock per batch × warehouse × packing_size
@@ -99,7 +132,7 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 | Dashboard | Global stock summary, accordion by item |
 | Warehouse | Picking list (searchable), stock inward, inter-warehouse transfer |
 | Master | CRUD for items, customers, suppliers, warehouses |
-| Admin | User management (manager role only) |
+| Admin | Users · Customer Ledger · Supplier Ledger · Backup (manager only) |
 
 ## Dev commands
 ```bash
@@ -107,6 +140,13 @@ npm run dev      # Vite frontend dev server (proxies /api to localhost:3001)
 npm run server   # tsx watch server/index.ts (runs on PORT env or 3001)
 npm run build    # tsc + vite build → dist/
 npx tsc --project tsconfig.node.json --noEmit   # type-check backend only
+
+# Release new APK (bumps version, builds, deploys to server)
+bash scripts/release-apk.sh 1.0.1
+
+# Build APK only (requires Java 21)
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./android/gradlew -p android assembleDebug
+npx cap sync android  # sync web assets before building APK
 ```
 
 ## Conventions
@@ -115,12 +155,6 @@ npx tsc --project tsconfig.node.json --noEmit   # type-check backend only
 - WebSocket sync via `useWSSync()` hook — triggers full data refresh on any mutation
 - Dark theme throughout (gray-950 background, Tailwind dark palette)
 - Confirmation dialogs (`ConfirmDialog`) for all destructive UI actions
-- posInt() helper used in all numeric route params for server-side validation
+- `posInt()` helper used in all numeric route params for server-side validation
 - Broadcast middleware MUST be registered before routes in server/index.ts
-
-## Daily backup setup (run once on server)
-```bash
-chmod +x /home/dckakadia/warehouse-stocks/scripts/backup-db.sh
-# Add cron: crontab -e
-0 2 * * * /home/dckakadia/warehouse-stocks/scripts/backup-db.sh >> /home/dckakadia/warehouse-stocks/backups/backup.log 2>&1
-```
+- Images stored as base64 data URIs in SQLite (no separate file storage)

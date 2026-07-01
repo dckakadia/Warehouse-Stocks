@@ -369,3 +369,19 @@ export const updateAdminUser = (id: number, b: UpdateUserBody) =>
   request<{ success: boolean }>(`/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(b) })
 export const deleteAdminUser = (id: number) =>
   request<{ success: boolean }>(`/admin/users/${id}`, { method: 'DELETE' })
+
+export interface BackupPayload {
+  exported_at: string
+  schema_version: number
+  data: Record<string, unknown[]>
+}
+
+export const exportData = () => request<BackupPayload>('/admin/backup/export')
+export const importData = (payload: BackupPayload) =>
+  request<{ success: boolean; tables: string[] }>('/admin/backup/import', {
+    method: 'POST',
+    body: JSON.stringify({ data: payload.data }),
+  })
+
+export const gdriveStatus  = () => request<{ configured: boolean }>('/admin/backup/gdrive/status')
+export const gdriveBackup  = () => request<{ ok: boolean; message: string }>('/admin/backup/gdrive', { method: 'POST' })
