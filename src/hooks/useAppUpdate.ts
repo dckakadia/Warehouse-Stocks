@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { APP_VERSION } from '../version'
 
 interface VersionInfo {
   version: string
@@ -20,23 +19,25 @@ export function useAppUpdate() {
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null)
 
   useEffect(() => {
-    // Only show APK update prompt when running inside the native Android app
     const isNative = !!(window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
     if (!isNative) return
 
-    const timer = setTimeout(async () => {
+    const run = async () => {
       try {
-        const res = await fetch('/version.json?_=' + Date.now())
+        const { App } = await import('@capacitor/app')
+        const info = await App.getInfo()
+        const res = await fetch('http://116.74.77.22:8088/version.json?_=' + Date.now())
         if (!res.ok) return
         const data: VersionInfo = await res.json()
-        if (data.version && isNewer(data.version, APP_VERSION)) {
+        if (data.version && isNewer(data.version, info.version)) {
           setUpdateInfo(data)
         }
       } catch {
-        // network unavailable — ignore silently
+        // silently ignore — no network or version check failed
       }
-    }, 3000)
+    }
 
+    const timer = setTimeout(run, 3000)
     return () => clearTimeout(timer)
   }, [])
 

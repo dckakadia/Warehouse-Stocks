@@ -15,9 +15,12 @@ APK_SRC="android/app/build/outputs/apk/debug/app-debug.apk"
 JAVA_HOME_21="/opt/homebrew/opt/openjdk@21"
 
 echo "==> Bumping version to $VERSION"
-# Update version constant in JS bundle
-sed -i '' "s/APP_VERSION = '[^']*'/APP_VERSION = '$VERSION'/" src/version.ts
-# Update version.json (served to running APKs for update checks)
+# Bump versionName in build.gradle (this is what App.getInfo().version returns on device)
+sed -i '' "s/versionName \"[^\"]*\"/versionName \"$VERSION\"/" android/app/build.gradle
+# Increment versionCode (integer, required by Android)
+CURRENT_CODE=$(grep 'versionCode' android/app/build.gradle | grep -o '[0-9]*')
+sed -i '' "s/versionCode ${CURRENT_CODE}/versionCode $((CURRENT_CODE + 1))/" android/app/build.gradle
+# Update version.json on server (tells old APKs a new version is available)
 printf '{\n  "version": "%s",\n  "apk_url": "http://116.74.77.22:8088/updates/app-latest.apk"\n}\n' "$VERSION" > public/version.json
 
 echo "==> Building frontend"

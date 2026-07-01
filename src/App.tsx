@@ -51,7 +51,12 @@ export default function App() {
   }
 
   if (!user) {
-    return <Login onLogin={login} />
+    return (
+      <>
+        {updateInfo && <UpdateBanner version={updateInfo.version} apkUrl={updateInfo.apk_url} />}
+        <Login onLogin={login} />
+      </>
+    )
   }
 
   const canEdit   = !!user.can_edit
