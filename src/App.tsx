@@ -144,7 +144,7 @@ export default function App() {
           onCreateDispatch={() => setShowDispatch(true)}
         />
       )}
-      {view === 'warehouse' && canViewWarehouse && <WarehouseApp refreshSig={refreshSig} canEdit={canEdit} isManager={user.role === 'manager'} />}
+      {view === 'warehouse' && canViewWarehouse && <WarehouseApp refreshSig={refreshSig} canEdit={canEdit} isManager={user.role === 'manager' || user.role === 'admin'} />}
       {view === 'master' && canViewMaster && <MasterPage canEdit={canEdit} canDelete={canDelete} />}
       {view === 'report' && canViewReport && <ReportPage canEdit={canEdit} canDelete={canDelete} />}
       {view === 'admin' && canViewAdminPanel && <AdminPage />}

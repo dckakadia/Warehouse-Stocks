@@ -42,9 +42,10 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - **Login:** `POST /api/auth/login` — rate limited 5 attempts / 15 min / IP (in-memory)
 - **Protection:** `app.use('/api', requireAuth)` in server/index.ts; `/api/auth/*` is public
 - **Rights middlewares:** `requireEdit`, `requireDelete`, `requireManager`, `requireUserAdmin` (manager or admin role) in server/middleware/requireAuth.ts
-- **Default admin:** Seeded on first run when `app_users` table is empty; credentials printed to PM2 logs
+- **Default admin:** Seeded whenever `app_users` table is empty at server startup — credentials printed to PM2 logs. **Recovery trick:** if every user (including the last manager/admin) is ever deleted, nobody can log in, but `pm2 restart warehouse-api` re-triggers this seed on next startup since the check runs at module load, not per-request — this is the fastest way to regain access without touching the DB directly.
 - **Password hashing:** Node built-in `crypto.scryptSync` + random salt (no bcrypt dependency)
 - **Database wiped:** 2026-07-01 — fresh start. New default admin credentials were printed to PM2 logs at that time.
+- **Incident — 2026-07-01:** the `admin` user was accidentally deleted from production via Admin → Users, and turned out to be the *only* row left in `app_users`, locking everyone out. Fixed by restarting `warehouse-api`, which re-seeded a fresh `admin`/manager account (see recovery trick above). All previously-created users (helpers, other managers) were lost and had to be recreated manually — the auto-seed only restores the single default admin, not the full user list. A DB backup taken shortly before this (`warehouse_20260701_152519.db.gz`, synced to Google Drive) may still hold the pre-deletion user list if needed.
 
 ## APK auto-update system (added July 2026)
 - `src/version.ts` — `APP_VERSION` constant embedded in the JS bundle
