@@ -53,7 +53,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const [expandedBatchId, setExpandedBatchId] = useState<number | null>(null)
   const [editBatch, setEditBatch] = useState<InwardBatch | null>(null)
   const [editBatchForm, setEditBatchForm] = useState({ color_name: '', batch_number: '', import_date: '', notes: '', supplier_id: '', batch_image: null as string | null })
-  const [editLines, setEditLines] = useState<Array<{ id?: number; warehouse_id: number | ''; packing_size: string; quantity_in_stock: string; godown_rack_location: string }>>([])
+  const [editLines, setEditLines] = useState<Array<{ id?: number; warehouse_id: number | ''; packing_size: string; quantity_in_stock: string }>>([])
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
   const [deleteInvLineId, setDeleteInvLineId] = useState<number | null>(null)
   const [recordsSaving, setRecordsSaving] = useState(false)
@@ -139,7 +139,6 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
       warehouse_id: l.warehouse_id,
       packing_size: l.packing_size,
       quantity_in_stock: String(l.quantity_in_stock),
-      godown_rack_location: l.godown_rack_location ?? '',
     })))
   }
 
@@ -169,7 +168,6 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
           warehouse_id: l.warehouse_id as number,
           packing_size: l.packing_size.trim(),
           quantity_in_stock: parseInt(l.quantity_in_stock),
-          godown_rack_location: l.godown_rack_location.trim(),
         })),
       })
       toast('Batch updated ✓', 'ok')
@@ -622,9 +620,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                           <div key={line.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30">
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-medium text-white">{line.warehouse_name} · {line.location_city}</p>
-                              <p className="text-xs text-gray-400">{line.packing_size} · {line.quantity_in_stock} bags
-                                {line.godown_rack_location ? <span className="text-gray-500"> · {line.godown_rack_location}</span> : null}
-                              </p>
+                              <p className="text-xs text-gray-400">{line.packing_size} · {line.quantity_in_stock} bags</p>
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <button onClick={() => setDeleteInvLineId(line.id)} title="Delete inventory line"
@@ -726,10 +722,6 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                             onChange={e => { const v = e.target.value; setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity_in_stock: v } : l)) }}
                             placeholder="Qty"
                             className="w-16 px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
-                          <input type="text" value={line.godown_rack_location}
-                            onChange={e => { const v = e.target.value; setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, godown_rack_location: v } : l)) }}
-                            placeholder="Rack (opt.)"
-                            className="w-24 px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
                           {editLines.length > 1 && (
                             <button type="button" onClick={() => setEditLines(prev => prev.filter((_, i) => i !== idx))}
                               className="p-1.5 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0">
@@ -739,7 +731,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                         </div>
                       ))}
                     </div>
-                    <button type="button" onClick={() => setEditLines(prev => [...prev, { warehouse_id: '', packing_size: '', quantity_in_stock: '', godown_rack_location: '' }])}
+                    <button type="button" onClick={() => setEditLines(prev => [...prev, { warehouse_id: '', packing_size: '', quantity_in_stock: '' }])}
                       className="mt-2 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
                       <Ic.Plus /> Add Line
                     </button>

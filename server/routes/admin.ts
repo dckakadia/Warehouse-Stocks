@@ -347,7 +347,7 @@ router.get('/inward', (_req, res) => {
 
   const invRows = db.prepare(`
     SELECT inv.id, inv.batch_id, inv.warehouse_id, inv.packing_size,
-           inv.quantity_in_stock, inv.godown_rack_location,
+           inv.quantity_in_stock,
            w.warehouse_name, w.location_city
     FROM inventory inv
     JOIN warehouses w ON inv.warehouse_id = w.id
@@ -393,7 +393,7 @@ router.put('/inward/batches/:id/full', (req, res) => {
   const { color_name, batch_number, import_date, notes, supplier_id, batch_image, lines } = req.body as {
     color_name: string; batch_number: string; import_date: string; notes: string
     supplier_id: number | null; batch_image?: string | null
-    lines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; godown_rack_location: string }[]
+    lines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number }[]
   }
 
   if (!color_name?.trim() || !batch_number?.trim() || !import_date?.trim()) {
@@ -403,7 +403,7 @@ router.put('/inward/batches/:id/full', (req, res) => {
     return res.status(400).json({ error: 'At least one inventory line is required' })
   }
 
-  const validatedLines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; godown_rack_location: string }[] = []
+  const validatedLines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number }[] = []
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
     const wid = Number(l.warehouse_id)
@@ -412,7 +412,7 @@ router.put('/inward/batches/:id/full', (req, res) => {
     if (!ps) return res.status(400).json({ error: `Line ${i + 1}: packing size is required` })
     const qty = Number(l.quantity_in_stock)
     if (!Number.isInteger(qty) || qty < 0) return res.status(400).json({ error: `Line ${i + 1}: quantity must be a non-negative integer` })
-    validatedLines.push({ id: l.id, warehouse_id: wid, packing_size: ps, quantity_in_stock: qty, godown_rack_location: l.godown_rack_location ?? '' })
+    validatedLines.push({ id: l.id, warehouse_id: wid, packing_size: ps, quantity_in_stock: qty })
   }
 
   if (batch_image !== undefined && batch_image !== null) {
@@ -464,12 +464,12 @@ router.put('/inward/batches/:id/full', (req, res) => {
       // Update existing lines / insert new ones
       for (const l of validatedLines) {
         if (l.id != null && existingLines.some(e => e.id === l.id)) {
-          db.prepare('UPDATE inventory SET warehouse_id=?, packing_size=?, quantity_in_stock=?, godown_rack_location=? WHERE id=?')
-            .run(l.warehouse_id, l.packing_size, l.quantity_in_stock, l.godown_rack_location, l.id)
+          db.prepare('UPDATE inventory SET warehouse_id=?, packing_size=?, quantity_in_stock=? WHERE id=?')
+            .run(l.warehouse_id, l.packing_size, l.quantity_in_stock, l.id)
         } else {
           db.prepare(
-            'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, godown_rack_location) VALUES (?, ?, ?, ?, ?)'
-          ).run(id, l.warehouse_id, l.packing_size, l.quantity_in_stock, l.godown_rack_location)
+            'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock) VALUES (?, ?, ?, ?)'
+          ).run(id, l.warehouse_id, l.packing_size, l.quantity_in_stock)
         }
       }
     })()
@@ -480,24 +480,6 @@ router.put('/inward/batches/:id/full', (req, res) => {
     if (msg.includes('FOREIGN KEY')) return res.status(409).json({ error: 'Cannot save: this batch has dispatch or transfer history that conflicts with the change' })
     return res.status(409).json({ error: msg })
   }
-})
-
-/* Edit an inventory line (quantity + godown location) */
-router.put('/inward/inventory/:id', (req, res) => {
-  const id = Number(req.params.id)
-  const { quantity_in_stock, godown_rack_location } = req.body as {
-    quantity_in_stock: number; godown_rack_location: string
-  }
-  const qty = Number(quantity_in_stock)
-  if (!Number.isInteger(qty) || qty < 0) {
-    return res.status(400).json({ error: 'quantity_in_stock must be a non-negative integer' })
-  }
-  if (!db.prepare('SELECT id FROM inventory WHERE id = ?').get(id)) {
-    return res.status(404).json({ error: 'Inventory line not found' })
-  }
-  db.prepare('UPDATE inventory SET quantity_in_stock=?, godown_rack_location=? WHERE id=?')
-    .run(qty, godown_rack_location ?? '', id)
-  return res.json({ success: true })
 })
 
 /* Delete an entire batch (+ all inventory lines) */

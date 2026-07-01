@@ -17,8 +17,7 @@ router.get('/', (_req, res) => {
       w.warehouse_name,
       w.location_city,
       inv.packing_size,
-      inv.quantity_in_stock,
-      inv.godown_rack_location
+      inv.quantity_in_stock
     FROM inventory inv
     JOIN batches b    ON inv.batch_id     = b.id
     JOIN items it     ON b.item_id        = it.id
@@ -55,8 +54,7 @@ router.get('/summary', (_req, res) => {
       w.location_city,
       b.id             AS batch_id,
       b.batch_number,
-      b.notes,
-      inv.godown_rack_location
+      b.notes
     FROM inventory inv
     JOIN batches b    ON inv.batch_id     = b.id
     JOIN items it     ON b.item_id        = it.id
@@ -76,7 +74,6 @@ router.get('/summary', (_req, res) => {
     batch_id: number
     batch_number: string
     notes: string
-    godown_rack_location: string
   }[]
 
   const map = new Map<string, {
@@ -93,7 +90,6 @@ router.get('/summary', (_req, res) => {
       packing_size: string
       quantity_in_stock: number
       notes: string
-      godown_rack_location: string
     }[]
   }>()
   // Track the most recently imported batch photo seen per color, to use as the group's
@@ -125,7 +121,6 @@ router.get('/summary', (_req, res) => {
       packing_size: r.packing_size,
       quantity_in_stock: r.quantity_in_stock,
       notes: r.notes,
-      godown_rack_location: r.godown_rack_location,
     })
   }
 
@@ -145,7 +140,7 @@ router.get('/batches', (req, res) => {
     SELECT b.id, b.batch_number, b.import_date, b.status,
            w.id AS warehouse_id, w.warehouse_name, w.location_city,
            inv.packing_size,
-           inv.quantity_in_stock, inv.godown_rack_location,
+           inv.quantity_in_stock,
            inv.id AS inv_id
     FROM batches b
     JOIN items it       ON b.item_id      = it.id

@@ -141,7 +141,6 @@ export interface StockSummaryLine {
   packing_size: string
   quantity_in_stock: number
   notes: string
-  godown_rack_location: string
 }
 
 export interface StockSummary {
@@ -188,7 +187,6 @@ export interface InventoryRow {
   location_city: string
   packing_size: string
   quantity_in_stock: number
-  godown_rack_location: string
 }
 
 export interface ColorRow {
@@ -208,7 +206,6 @@ export interface BatchRow {
   location_city: string
   packing_size: string
   quantity_in_stock: number
-  godown_rack_location: string
   inv_id: number
 }
 
@@ -241,7 +238,6 @@ export interface DispatchOrder {
   bags_dispatched: number
   status: 'Pending' | 'Picked' | 'Cancelled'
   created_at: string
-  godown_rack_location: string
 }
 
 export interface CreateDispatchBody {
@@ -395,7 +391,6 @@ export interface InwardInventoryLine {
   warehouse_id: number
   packing_size: string
   quantity_in_stock: number
-  godown_rack_location: string
   warehouse_name: string
   location_city: string
 }
@@ -422,7 +417,6 @@ export interface InwardBatchFullLine {
   warehouse_id: number
   packing_size: string
   quantity_in_stock: number
-  godown_rack_location: string
 }
 
 export const getInwardBatches = () => request<InwardBatch[]>('/admin/inward')
@@ -432,8 +426,6 @@ export const updateInwardBatchFull = (id: number, body: {
   color_name: string; batch_number: string; import_date: string; notes: string
   supplier_id: number | null; batch_image?: string | null; lines: InwardBatchFullLine[]
 }) => request<{ success: boolean }>(`/admin/inward/batches/${id}/full`, { method: 'PUT', body: JSON.stringify(body) })
-export const updateInwardInventory = (id: number, body: { quantity_in_stock: number; godown_rack_location: string }) =>
-  request<{ success: boolean }>(`/admin/inward/inventory/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const deleteInwardBatch = (id: number) =>
   request<{ success: boolean }>(`/admin/inward/batches/${id}`, { method: 'DELETE' })
 export const deleteInwardInventoryLine = (id: number) =>

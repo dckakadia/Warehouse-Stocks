@@ -44,8 +44,8 @@ router.post('/', requireEdit, (req, res) => {
       .run(bags, src.id)
 
     db.prepare(`
-      INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, godown_rack_location)
-      VALUES (?, ?, ?, ?, '')
+      INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(batch_id, warehouse_id, packing_size) DO UPDATE SET
         quantity_in_stock = quantity_in_stock + excluded.quantity_in_stock
     `).run(batch_id, to_warehouse_id, packing_size, bags)
