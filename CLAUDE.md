@@ -120,16 +120,16 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - `dispatch_logs` — confirmed dispatch history
 - `suppliers` — supplier master (`supplier_name`, `contact_number`, `address`, `gst_number` — added July 2026)
 - `stock_transfers` — inter-warehouse transfers
-- `app_users` — users with roles and rights: `role` (manager/helper/admin), `can_view`, `can_edit`, `can_delete`, `can_view_dashboard`, `can_view_warehouse`, `can_view_master`, `is_active` (role CHECK constraint widened July 2026 via table rebuild — see server/db.ts `app_users_v2` migration)
+- `app_users` — users with roles and rights: `role` (manager/helper/admin), `can_view`, `can_edit`, `can_delete`, `can_view_dashboard`, `can_view_warehouse`, `can_view_master`, `can_view_report` (added July 2026), `is_active` (role CHECK constraint widened July 2026 via table rebuild — see server/db.ts `app_users_v2` migration)
 
 ## Roles and rights (added `admin` role July 2026)
-| Role | Dashboard/Warehouse/Master | Report (ledgers) | Admin panel | Notes |
-|------|------------------------------|-------------------|-------------|-------|
-| manager | configurable per-page (`can_view_dashboard/warehouse/master`) | ✓ | ✓ full (Users + Backup) | `can_edit`/`can_delete` still gate individual actions |
-| admin | configurable per-page (same flags) | ✓ | ✓ full (Users + Backup) | **Functionally identical to manager** — a separate role label only; `requireUserAdmin` backend middleware accepts both roles everywhere `requireManager` used to be manager-only |
-| helper | configurable per-page (same flags) | ✗ | ✗ | `can_edit`/`can_delete` configurable |
+| Role | Dashboard/Warehouse/Master/Report | Admin panel | Notes |
+|------|-------------------------------------|-------------|-------|
+| manager | configurable per-page (`can_view_dashboard/warehouse/master/report`) | ✓ full (Users + Backup) | `can_edit`/`can_delete` still gate individual actions |
+| admin | configurable per-page (same flags) | ✓ full (Users + Backup) | **Functionally identical to manager** — a separate role label only; `requireUserAdmin` backend middleware accepts both roles everywhere `requireManager` used to be manager-only |
+| helper | configurable per-page (same flags) | ✗ | `can_edit`/`can_delete` configurable |
 
-Dashboard/Warehouse/Master page access is configurable per-user for all three roles via Admin → Users → "Page Access" (same UI, same flags, no role-based exclusions). Admin panel and Report access are role-based (`manager` or `admin`), not page-flags. The Users table has **RIGHTS** and **PAGES** columns showing each user's current access at a glance. Nav visibility is derived in `src/App.tsx` (`canViewDashboard/Warehouse/Master/Report/AdminPanel`) — Report/AdminPanel check role only; Dashboard/Warehouse/Master check the flags regardless of role.
+Dashboard/Warehouse/Master/Report page access is configurable per-user for all three roles via Admin → Users → "Page Access" (same UI, same 4 flags, no role-based exclusions — Report used to be hardcoded to manager/admin role until July 2026, now it's a flag like the other three). Only the Admin panel itself stays role-based (`manager` or `admin`), since it manages other users. The Users table has **RIGHTS** and **PAGES** columns showing each user's current access at a glance. Nav visibility is derived in `src/App.tsx` (`canViewDashboard/Warehouse/Master/Report` all flag-based; `canViewAdminPanel` role-based).
 
 ## Navigation views
 | View | Description | Access |
@@ -137,7 +137,7 @@ Dashboard/Warehouse/Master page access is configurable per-user for all three ro
 | Dashboard | Global stock summary, accordion by item | any role if `can_view_dashboard` |
 | Warehouse | Picking list (searchable), stock inward, inter-warehouse transfer | any role if `can_view_warehouse` |
 | Master | CRUD for items, customers, suppliers, warehouses | any role if `can_view_master` |
-| Report | Customer Ledger · Supplier Ledger · Warehouse Transfers (date-filtered, print/PDF) | manager, admin |
+| Report | Customer Ledger · Supplier Ledger · Warehouse Transfers (date-filtered, print/PDF) | any role if `can_view_report` |
 | Admin | Users · Backup | manager, admin |
 
 ## Dev commands

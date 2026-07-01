@@ -25,6 +25,7 @@ export interface TokenPayload {
   can_view_dashboard: number
   can_view_warehouse: number
   can_view_master: number
+  can_view_report: number
   exp: number
 }
 

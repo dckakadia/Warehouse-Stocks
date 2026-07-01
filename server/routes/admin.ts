@@ -28,7 +28,7 @@ export function verifyPassword(password: string, stored: string): boolean {
 /* ── List all users (no password_hash) ── */
 router.get('/users', (_req, res) => {
   const rows = db.prepare(`
-    SELECT id, username, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, created_at
+    SELECT id, username, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, can_view_report, is_active, created_at
     FROM app_users
     ORDER BY created_at DESC
   `).all()
@@ -37,7 +37,7 @@ router.get('/users', (_req, res) => {
 
 /* ── Create user ── */
 router.post('/users', (req, res) => {
-  const { username, password, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master } = req.body as {
+  const { username, password, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, can_view_report } = req.body as {
     username: string
     password: string
     role: 'manager' | 'helper' | 'admin'
@@ -47,6 +47,7 @@ router.post('/users', (req, res) => {
     can_view_dashboard: boolean
     can_view_warehouse: boolean
     can_view_master: boolean
+    can_view_report: boolean
   }
 
   if (!username?.trim()) return res.status(400).json({ error: 'Username is required' })
@@ -57,8 +58,8 @@ router.post('/users', (req, res) => {
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO app_users (username, password_hash, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO app_users (username, password_hash, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, can_view_report)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const result = stmt.run(
       username.trim(),
@@ -70,9 +71,10 @@ router.post('/users', (req, res) => {
       can_view_dashboard ? 1 : 0,
       can_view_warehouse ? 1 : 0,
       can_view_master ? 1 : 0,
+      can_view_report ? 1 : 0,
     )
     const user = db.prepare(
-      'SELECT id, username, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, created_at FROM app_users WHERE id = ?'
+      'SELECT id, username, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, can_view_report, is_active, created_at FROM app_users WHERE id = ?'
     ).get(result.lastInsertRowid)
     return res.status(201).json(user)
   } catch (err: unknown) {
@@ -85,7 +87,7 @@ router.post('/users', (req, res) => {
 /* ── Update user (role, rights, optional password, active) ── */
 router.put('/users/:id', (req, res) => {
   const id = Number(req.params.id)
-  const { role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, password } = req.body as {
+  const { role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, can_view_report, is_active, password } = req.body as {
     role: 'manager' | 'helper' | 'admin'
     can_view: boolean
     can_edit: boolean
@@ -93,6 +95,7 @@ router.put('/users/:id', (req, res) => {
     can_view_dashboard: boolean
     can_view_warehouse: boolean
     can_view_master: boolean
+    can_view_report: boolean
     is_active: boolean
     password?: string
   }
@@ -105,12 +108,12 @@ router.put('/users/:id', (req, res) => {
   if (password) {
     if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' })
     db.prepare(`
-      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, can_view_dashboard=?, can_view_warehouse=?, can_view_master=?, is_active=?, password_hash=? WHERE id=?
-    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, can_view_dashboard ? 1 : 0, can_view_warehouse ? 1 : 0, can_view_master ? 1 : 0, is_active ? 1 : 0, hashPassword(password), id)
+      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, can_view_dashboard=?, can_view_warehouse=?, can_view_master=?, can_view_report=?, is_active=?, password_hash=? WHERE id=?
+    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, can_view_dashboard ? 1 : 0, can_view_warehouse ? 1 : 0, can_view_master ? 1 : 0, can_view_report ? 1 : 0, is_active ? 1 : 0, hashPassword(password), id)
   } else {
     db.prepare(`
-      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, can_view_dashboard=?, can_view_warehouse=?, can_view_master=?, is_active=? WHERE id=?
-    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, can_view_dashboard ? 1 : 0, can_view_warehouse ? 1 : 0, can_view_master ? 1 : 0, is_active ? 1 : 0, id)
+      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, can_view_dashboard=?, can_view_warehouse=?, can_view_master=?, can_view_report=?, is_active=? WHERE id=?
+    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, can_view_dashboard ? 1 : 0, can_view_warehouse ? 1 : 0, can_view_master ? 1 : 0, can_view_report ? 1 : 0, is_active ? 1 : 0, id)
   }
 
   return res.json({ success: true })

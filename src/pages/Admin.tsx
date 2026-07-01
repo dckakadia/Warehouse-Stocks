@@ -42,6 +42,7 @@ const EMPTY_USER_FORM = {
   can_view_dashboard: true,
   can_view_warehouse: true,
   can_view_master: true,
+  can_view_report: true,
   is_active: true,
 }
 
@@ -274,6 +275,7 @@ export default function AdminPage() {
     can_view_dashboard: !!u.can_view_dashboard,
     can_view_warehouse: !!u.can_view_warehouse,
     can_view_master: !!u.can_view_master,
+    can_view_report: !!u.can_view_report,
     is_active: !!u.is_active,
   })
 
@@ -291,6 +293,7 @@ export default function AdminPage() {
           can_view_dashboard: form.can_view_dashboard,
           can_view_warehouse: form.can_view_warehouse,
           can_view_master: form.can_view_master,
+          can_view_report: form.can_view_report,
           is_active: form.is_active,
           ...(form.password ? { password: form.password } : {}),
         })
@@ -306,6 +309,7 @@ export default function AdminPage() {
           can_view_dashboard: form.can_view_dashboard,
           can_view_warehouse: form.can_view_warehouse,
           can_view_master: form.can_view_master,
+          can_view_report: form.can_view_report,
         })
         toast(`User "${form.username}" created`, 'ok')
       }
@@ -446,11 +450,12 @@ export default function AdminPage() {
 
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Page Access</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {([
                   { key: 'can_view_dashboard', label: 'Dashboard', icon: <Ic.Monitor /> },
                   { key: 'can_view_warehouse', label: 'Warehouse', icon: <Ic.Building /> },
                   { key: 'can_view_master',    label: 'Master',    icon: <Ic.Database /> },
+                  { key: 'can_view_report',    label: 'Report',    icon: <Ic.Clipboard /> },
                 ] as const).map(({ key, label, icon }) => {
                   const checked = !!form[key]
                   return (
@@ -534,10 +539,8 @@ export default function AdminPage() {
                       {u.can_view_dashboard ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Dashboard</span> : null}
                       {u.can_view_warehouse ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Warehouse</span> : null}
                       {u.can_view_master    ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Master</span>    : null}
-                      {(u.role === 'manager' || u.role === 'admin') && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-rose-900/30 text-rose-400 border border-rose-800/60 font-medium">Report</span>
-                      )}
-                      {!u.can_view_dashboard && !u.can_view_warehouse && !u.can_view_master && u.role === 'helper' && (
+                      {u.can_view_report    ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Report</span>    : null}
+                      {!u.can_view_dashboard && !u.can_view_warehouse && !u.can_view_master && !u.can_view_report && (
                         <span className="text-xs text-gray-600 italic">No pages</span>
                       )}
                     </div>
@@ -573,7 +576,7 @@ export default function AdminPage() {
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Role Capabilities</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
-            { role: 'Manager', color: ROLE_COLORS.manager, desc: 'Full operational access — View/Edit/Delete rights and Dashboard/Warehouse/Master page access are both configurable per manager.' },
+            { role: 'Manager', color: ROLE_COLORS.manager, desc: 'Full operational access — View/Edit/Delete rights and Dashboard/Warehouse/Master/Report page access are both configurable per manager.' },
             { role: 'Helper',  color: ROLE_COLORS.helper,  desc: 'Support role — typically assigned View-only access; edit/delete rights can be enabled if needed.' },
             { role: 'Admin',   color: ROLE_COLORS.admin,   desc: 'Same full access as Manager — a separate role label for user management staff, with identically configurable rights and page access.' },
           ].map(({ role, color, desc }) => (

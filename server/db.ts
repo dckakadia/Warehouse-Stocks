@@ -104,6 +104,7 @@ db.exec(`
     can_view_dashboard INTEGER NOT NULL DEFAULT 1,
     can_view_warehouse INTEGER NOT NULL DEFAULT 1,
     can_view_master    INTEGER NOT NULL DEFAULT 1,
+    can_view_report    INTEGER NOT NULL DEFAULT 1,
     is_active     INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -120,6 +121,7 @@ try { db.exec("ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES sup
 try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_dashboard INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
 try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_warehouse INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
 try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_master    INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
+try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_report    INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
 // Add gst_number to customers/suppliers if not present (existing DB)
 try { db.exec("ALTER TABLE customers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
 try { db.exec("ALTER TABLE suppliers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }

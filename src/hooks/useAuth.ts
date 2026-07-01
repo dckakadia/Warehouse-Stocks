@@ -11,6 +11,7 @@ export interface AuthUser {
   can_view_dashboard: number
   can_view_warehouse: number
   can_view_master: number
+  can_view_report: number
 }
 
 function parseTokenUser(token: string): AuthUser | null {
@@ -30,6 +31,7 @@ function parseTokenUser(token: string): AuthUser | null {
       can_view_dashboard: payload.can_view_dashboard,
       can_view_warehouse: payload.can_view_warehouse,
       can_view_master: payload.can_view_master,
+      can_view_report: payload.can_view_report,
     }
   } catch {
     return null

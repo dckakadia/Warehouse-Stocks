@@ -51,6 +51,7 @@ export interface LoginResponse {
     can_view_dashboard: number
     can_view_warehouse: number
     can_view_master: number
+    can_view_report: number
   }
 }
 
@@ -290,6 +291,7 @@ export interface AppUser {
   can_view_dashboard: number
   can_view_warehouse: number
   can_view_master: number
+  can_view_report: number
   is_active: number
   created_at: string
 }
@@ -304,6 +306,7 @@ export interface CreateUserBody {
   can_view_dashboard: boolean
   can_view_warehouse: boolean
   can_view_master: boolean
+  can_view_report: boolean
 }
 
 export interface UpdateUserBody {
@@ -314,6 +317,7 @@ export interface UpdateUserBody {
   can_view_dashboard: boolean
   can_view_warehouse: boolean
   can_view_master: boolean
+  can_view_report: boolean
   is_active: boolean
   password?: string
 }
