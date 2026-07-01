@@ -43,22 +43,35 @@ export function useAuth() {
     const tok = getStoredToken()
     return tok ? parseTokenUser(tok) : null
   })
+  const [token, setToken] = useState<string | null>(() => getStoredToken())
+  const [logoutReason, setLogoutReason] = useState<string | null>(null)
 
-  const logout = useCallback(() => {
+  const logout = useCallback((reason?: string) => {
     setAuthToken(null)
     setUser(null)
+    setToken(null)
+    setLogoutReason(reason ?? null)
   }, [])
 
   const doLogin = useCallback(async (username: string, password: string): Promise<void> => {
     const resp = await apiLogin(username, password)
     setAuthToken(resp.token)
     setUser(resp.user as AuthUser)
+    setToken(resp.token)
+    setLogoutReason(null)
   }, [])
 
+  // Re-authenticates in place (used by the session-expiry warning banner) without
+  // unmounting the current view, since `user`/`token` update alone doesn't remount pages.
+  const refreshSession = useCallback(async (password: string): Promise<void> => {
+    if (!user) throw new Error('Not logged in')
+    await doLogin(user.username, password)
+  }, [user, doLogin])
+
   useEffect(() => {
-    setUnauthorizedCallback(logout)
+    setUnauthorizedCallback(() => logout('Your session expired — please sign in again.'))
     return () => setUnauthorizedCallback(() => {})
   }, [logout])
 
-  return { user, login: doLogin, logout }
+  return { user, token, login: doLogin, logout, refreshSession, logoutReason }
 }

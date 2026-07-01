@@ -4,6 +4,8 @@ import type { AppUser } from '../api'
 import Ic from '../icons'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBlock from '../components/ErrorBlock'
+import Skeleton from '../components/Skeleton'
 
 /* ── Password Strength ── */
 function PasswordStrength({ password }: { password: string }) {
@@ -248,6 +250,7 @@ export default function AdminPage() {
   const [adminTab, setAdminTab] = useState<AdminTab>('users')
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [form, setForm] = useState<typeof EMPTY_USER_FORM | null>(null)
   const [saving, setSaving] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
@@ -256,9 +259,15 @@ export default function AdminPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const rows = await api.getAdminUsers()
-    setUsers(rows)
-    setLoading(false)
+    setLoadError(null)
+    try {
+      const rows = await api.getAdminUsers()
+      setUsers(rows)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load users')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -509,9 +518,17 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              {loading && <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-500 text-sm">Loading…</td></tr>}
-              {!loading && users.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-500 text-sm">No users yet.</td></tr>}
-              {users.map(u => (
+              {loading && Array.from({ length: 4 }).map((_, i) => (
+                <tr key={i}>
+                  {Array.from({ length: 6 }).map((_, j) => (
+                    <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
+                  ))}
+                  <td className="px-4 py-3" />
+                </tr>
+              ))}
+              {!loading && loadError && <tr><td colSpan={7}><ErrorBlock message={loadError} onRetry={load} /></td></tr>}
+              {!loading && !loadError && users.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-500 text-sm">No users yet.</td></tr>}
+              {!loading && !loadError && users.map(u => (
                 <tr key={u.id} className="hover:bg-gray-800/40 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">

@@ -3,7 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DB_PATH = path.join(__dirname, '..', 'warehouse.db')
+const DB_PATH = process.env.WMS_DB_PATH ?? path.join(__dirname, '..', 'warehouse.db')
 
 const db = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')

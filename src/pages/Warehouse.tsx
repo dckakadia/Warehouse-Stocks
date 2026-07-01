@@ -5,19 +5,27 @@ import Ic from '../icons'
 import { todayISO, compressImage, whColor } from '../utils'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBlock from '../components/ErrorBlock'
+import Skeleton from '../components/Skeleton'
 
 interface Props {
   refreshSig: number
+  refreshEntity: string
   canEdit: boolean
   isManager: boolean
 }
 
-export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) {
+// Entities that affect the picking list / inward / transfer forms — anything else
+// (e.g. a customer or user edit) shouldn't flash-refetch this page.
+const RELEVANT_ENTITIES = new Set(['inventory', 'dispatch', 'transfers', 'items', 'warehouses', 'suppliers'])
+
+export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isManager }: Props) {
   const [tab, setTab] = useState<'picking' | 'inward' | 'transfer' | 'records'>('picking')
   const [orders, setOrders] = useState<DispatchOrder[]>([])
   const [colors, setColors] = useState<ColorRow[]>([])
   const [warehouses, setWarehouses] = useState<WarehouseType[]>([])
   const [loadingOrders, setLoadingOrders] = useState(true)
+  const [pageError, setPageError] = useState<string | null>(null)
   const [pickingSearch, setPickingSearch] = useState('')
   const [confirmPickId, setConfirmPickId] = useState<number | null>(null)
   const { toasts, add: toast } = useToast()
@@ -37,6 +45,7 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const [allSuppliers, setAllSuppliers] = useState<api.Supplier[]>([])
   const galleryRef = useRef<HTMLInputElement>(null)
   const cameraRef  = useRef<HTMLInputElement>(null)
+  const hasLoadedBootstrapRef = useRef(false)
 
   // Transfer form
   const [tFromWid, setTFromWid] = useState<number | ''>('')
@@ -58,29 +67,64 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const [deleteInvLineId, setDeleteInvLineId] = useState<number | null>(null)
   const [recordsSaving, setRecordsSaving] = useState(false)
   const [recordsLoading, setRecordsLoading] = useState(false)
+  const [recordsError, setRecordsError] = useState<string | null>(null)
   const editGalleryRef = useRef<HTMLInputElement>(null)
   const editCameraRef  = useRef<HTMLInputElement>(null)
 
   const loadOrders = useCallback(async () => {
-    const rows = await api.getDispatchOrders('Pending')
-    setOrders(rows)
-    setLoadingOrders(false)
-  }, [])
+    try {
+      const rows = await api.getDispatchOrders('Pending')
+      setOrders(rows)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to refresh orders', 'err')
+    } finally {
+      setLoadingOrders(false)
+    }
+  }, [toast])
 
   const loadInwardBatches = useCallback(async () => {
     setRecordsLoading(true)
-    const rows = await api.getInwardBatches()
-    setInwardBatches(rows)
-    setRecordsLoading(false)
+    setRecordsError(null)
+    try {
+      const rows = await api.getInwardBatches()
+      setInwardBatches(rows)
+    } catch (err) {
+      setRecordsError(err instanceof Error ? err.message : 'Failed to load stock records')
+    } finally {
+      setRecordsLoading(false)
+    }
+  }, [])
+
+  const loadBootstrap = useCallback(async () => {
+    const isInitial = !hasLoadedBootstrapRef.current
+    if (isInitial) { setLoadingOrders(true); setPageError(null) }
+    try {
+      const [ordersRows, colorsRows, whRows, itemsRows, suppliersRows] = await Promise.all([
+        api.getDispatchOrders('Pending'),
+        api.getColors(),
+        api.getWarehouses(),
+        api.getItems(),
+        api.getSuppliers(),
+      ])
+      setOrders(ordersRows)
+      setColors(colorsRows)
+      setWarehouses(whRows)
+      setAllItems(itemsRows)
+      setAllSuppliers(suppliersRows)
+      hasLoadedBootstrapRef.current = true
+    } catch (err) {
+      // Background refreshes fail silently, keeping the last-known-good data on screen;
+      // only the initial load surfaces a retry-able error block.
+      if (isInitial) setPageError(err instanceof Error ? err.message : 'Failed to load warehouse data')
+    } finally {
+      if (isInitial) setLoadingOrders(false)
+    }
   }, [])
 
   useEffect(() => {
-    loadOrders()
-    api.getColors().then(setColors)
-    api.getWarehouses().then(setWarehouses)
-    api.getItems().then(setAllItems)
-    api.getSuppliers().then(setAllSuppliers)
-  }, [loadOrders, refreshSig])
+    if (refreshSig > 0 && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
+    loadBootstrap()
+  }, [loadBootstrap, refreshSig, refreshEntity])
 
   useEffect(() => {
     if (tab === 'records' && isManager) loadInwardBatches()
@@ -315,11 +359,26 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
               placeholder="Search by color, customer, batch…"
               className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
           </div>
-          {loadingOrders && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
-          {!loadingOrders && orders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No pending orders</p>}
-          {!loadingOrders && orders.length > 0 && filteredOrders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No orders match your search</p>}
+          {loadingOrders && (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <Skeleton className="w-14 h-14 rounded-lg flex-shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/3" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loadingOrders && pageError && <ErrorBlock message={pageError} onRetry={loadBootstrap} />}
+          {!loadingOrders && !pageError && orders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No pending orders</p>}
+          {!loadingOrders && !pageError && orders.length > 0 && filteredOrders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No orders match your search</p>}
           <div className="space-y-3">
-            {filteredOrders.map(o => (
+            {!pageError && filteredOrders.map(o => (
               <div key={o.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
                 <div className="flex items-start gap-3">
                   {o.item_image && (
@@ -575,12 +634,26 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
               placeholder="Search by item, batch, supplier…"
               className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
           </div>
-          {recordsLoading && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
-          {!recordsLoading && filteredBatches.length === 0 && (
+          {recordsLoading && (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3">
+                  <Skeleton className="w-10 h-10 rounded-lg flex-shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-1/2" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                  <Skeleton className="h-4 w-12" />
+                </div>
+              ))}
+            </div>
+          )}
+          {!recordsLoading && recordsError && <ErrorBlock message={recordsError} onRetry={loadInwardBatches} />}
+          {!recordsLoading && !recordsError && filteredBatches.length === 0 && (
             <p className="text-center text-gray-500 py-10 text-sm">No inward records found</p>
           )}
           <div className="space-y-2">
-            {filteredBatches.map(b => {
+            {!recordsError && filteredBatches.map(b => {
               const isExpanded = expandedBatchId === b.id
               const totalBags = b.inventory.reduce((s, l) => s + l.quantity_in_stock, 0)
               return (

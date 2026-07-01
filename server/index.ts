@@ -31,12 +31,31 @@ app.use((req, res, next) => {
   next()
 })
 
+/* ── Maps a mutated route to the data "entity" it affects, so clients can skip
+   refetching pages that show none of that data (see useWSSync on the frontend). ── */
+function deriveEntity(path: string): string {
+  if (path.startsWith('/api/masters/items'))      return 'items'
+  if (path.startsWith('/api/masters/customers'))  return 'customers'
+  if (path.startsWith('/api/masters/suppliers'))  return 'suppliers'
+  if (path.startsWith('/api/masters/warehouses')) return 'warehouses'
+  if (path.startsWith('/api/customers'))          return 'customers'
+  if (path.startsWith('/api/dispatch'))           return 'dispatch'
+  if (path.startsWith('/api/transfers'))          return 'transfers'
+  if (path.startsWith('/api/inward'))             return 'inventory'
+  if (path.startsWith('/api/inventory'))          return 'inventory'
+  if (path.startsWith('/api/admin/users'))        return 'users'
+  if (path.startsWith('/api/admin/backup'))       return 'all'
+  if (path.startsWith('/api/admin/ledger/orders')) return 'dispatch'
+  if (path.startsWith('/api/admin/inward'))       return 'inventory'
+  return 'other'
+}
+
 /* ── Broadcast middleware — MUST be before routes so res.json is patched first ── */
 app.use((req, res, next) => {
   const original = res.json.bind(res)
   res.json = (body) => {
     if (req.method !== 'GET' && res.statusCode < 300) {
-      broadcast('data_changed', { path: req.path })
+      broadcast('data_changed', { path: req.path, entity: deriveEntity(req.path) })
     }
     return original(body)
   }

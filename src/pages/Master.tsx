@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import * as api from '../api'
 import type { Customer, Warehouse } from '../api'
 import Ic from '../icons'
 import { whColor } from '../utils'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBlock from '../components/ErrorBlock'
+import Skeleton from '../components/Skeleton'
 
 type MasterTab = 'items' | 'customers' | 'suppliers' | 'warehouses'
 
@@ -15,6 +17,7 @@ interface Props {
 
 function MasterSection<T extends { id: number }>({
   title, icon, items, columns, renderRow, form, setForm, emptyForm, onSave, onDelete, renderForm, canEdit, canDelete,
+  loading, error, onRetry,
 }: {
   title: string
   icon: React.ReactNode
@@ -29,6 +32,9 @@ function MasterSection<T extends { id: number }>({
   renderForm: (f: Partial<T> & { id: number | null }, set: (f: Partial<T> & { id: number | null }) => void) => React.ReactNode
   canEdit: boolean
   canDelete: boolean
+  loading: boolean
+  error: string | null
+  onRetry: () => void
 }) {
   const [saving, setSaving] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
@@ -88,10 +94,21 @@ function MasterSection<T extends { id: number }>({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {items.length === 0 && (
+            {loading && Array.from({ length: 4 }).map((_, i) => (
+              <tr key={i}>
+                {columns.map((_c, j) => (
+                  <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
+                ))}
+                {(canEdit || canDelete) && <td className="px-4 py-3" />}
+              </tr>
+            ))}
+            {!loading && error && (
+              <tr><td colSpan={columns.length + 1}><ErrorBlock message={error} onRetry={onRetry} /></td></tr>
+            )}
+            {!loading && !error && items.length === 0 && (
               <tr><td colSpan={columns.length + 1} className="px-4 py-10 text-center text-gray-500 text-sm">No records yet</td></tr>
             )}
-            {items.map(item => (
+            {!loading && !error && items.map(item => (
               <tr key={item.id} className="hover:bg-gray-800/40 transition-colors">
                 {renderRow(item).map((cell, i) => (
                   <td key={i} className="px-4 py-3 text-sm text-gray-200">{cell}</td>
@@ -139,20 +156,49 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
 
   const [items, setItems] = useState<api.Item[]>([])
   const [itemForm, setItemForm] = useState<(Partial<api.Item> & { id: number | null }) | null>(null)
+  const [itemsLoading, setItemsLoading] = useState(true)
+  const [itemsError, setItemsError] = useState<string | null>(null)
 
   const [customers, setCustomers] = useState<Customer[]>([])
   const [custForm, setCustForm] = useState<(Partial<Customer> & { id: number | null }) | null>(null)
+  const [customersLoading, setCustomersLoading] = useState(true)
+  const [customersError, setCustomersError] = useState<string | null>(null)
 
   const [suppliers, setSuppliers] = useState<api.Supplier[]>([])
   const [supForm, setSupForm] = useState<(Partial<api.Supplier> & { id: number | null }) | null>(null)
+  const [suppliersLoading, setSuppliersLoading] = useState(true)
+  const [suppliersError, setSuppliersError] = useState<string | null>(null)
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [whForm, setWhForm] = useState<(Partial<Warehouse> & { id: number | null }) | null>(null)
+  const [warehousesLoading, setWarehousesLoading] = useState(true)
+  const [warehousesError, setWarehousesError] = useState<string | null>(null)
 
-  useEffect(() => { api.getItems().then(setItems) }, [tab])
-  useEffect(() => { if (tab === 'customers') api.getMasterCustomers().then(setCustomers) }, [tab])
-  useEffect(() => { if (tab === 'suppliers') api.getSuppliers().then(setSuppliers) }, [tab])
-  useEffect(() => { if (tab === 'warehouses') api.getWarehouses().then(setWarehouses) }, [tab])
+  const loadItems = useCallback(() => {
+    setItemsLoading(true)
+    setItemsError(null)
+    api.getItems().then(setItems).catch(err => setItemsError(err instanceof Error ? err.message : 'Failed to load items')).finally(() => setItemsLoading(false))
+  }, [])
+  const loadCustomers = useCallback(() => {
+    setCustomersLoading(true)
+    setCustomersError(null)
+    api.getMasterCustomers().then(setCustomers).catch(err => setCustomersError(err instanceof Error ? err.message : 'Failed to load customers')).finally(() => setCustomersLoading(false))
+  }, [])
+  const loadSuppliers = useCallback(() => {
+    setSuppliersLoading(true)
+    setSuppliersError(null)
+    api.getSuppliers().then(setSuppliers).catch(err => setSuppliersError(err instanceof Error ? err.message : 'Failed to load suppliers')).finally(() => setSuppliersLoading(false))
+  }, [])
+  const loadWarehouses = useCallback(() => {
+    setWarehousesLoading(true)
+    setWarehousesError(null)
+    api.getWarehouses().then(setWarehouses).catch(err => setWarehousesError(err instanceof Error ? err.message : 'Failed to load warehouses')).finally(() => setWarehousesLoading(false))
+  }, [])
+
+  useEffect(() => { loadItems() }, [tab, loadItems])
+  useEffect(() => { if (tab === 'customers') loadCustomers() }, [tab, loadCustomers])
+  useEffect(() => { if (tab === 'suppliers') loadSuppliers() }, [tab, loadSuppliers])
+  useEffect(() => { if (tab === 'warehouses') loadWarehouses() }, [tab, loadWarehouses])
 
   const tabs: { key: MasterTab; label: string }[] = [
     { key: 'items',      label: 'Items Master' },
@@ -184,6 +230,7 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
           emptyForm={{ color_name: '', hsn_code: '7018.90.00', item_image: null, batch_numbers: '' }}
           form={itemForm} setForm={setItemForm}
           canEdit={canEdit} canDelete={canDelete}
+          loading={itemsLoading} error={itemsError} onRetry={loadItems}
           renderRow={item => [
             <span className="font-medium">{item.color_name}</span>,
           ]}
@@ -200,14 +247,14 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
               else await api.createItem({ color_name: f.color_name!, hsn_code: '7018.90.00', item_image: null })
               toast(f.id ? 'Item updated' : 'Item created')
               setItemForm(null)
-              api.getItems().then(setItems)
+              loadItems()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
           onDelete={async id => {
             try {
               await api.deleteItem(id)
               toast('Item deleted')
-              api.getItems().then(setItems)
+              loadItems()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
         />
@@ -220,6 +267,7 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
           emptyForm={{ customer_name: '', contact_number: '', gst_number: '' }}
           form={custForm} setForm={setCustForm}
           canEdit={canEdit} canDelete={canDelete}
+          loading={customersLoading} error={customersError} onRetry={loadCustomers}
           renderRow={c => [
             <span className="font-medium">{c.customer_name}</span>,
             <span className="text-gray-400">{c.contact_number || '—'}</span>,
@@ -252,14 +300,14 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
               else await api.createCustomer(f.customer_name!, f.contact_number ?? '', f.gst_number ?? '')
               toast(f.id ? 'Customer updated' : 'Customer created')
               setCustForm(null)
-              api.getMasterCustomers().then(setCustomers)
+              loadCustomers()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
           onDelete={async id => {
             try {
               await api.deleteCustomer(id)
               toast('Customer deleted')
-              api.getMasterCustomers().then(setCustomers)
+              loadCustomers()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
         />
@@ -272,6 +320,7 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
           emptyForm={{ supplier_name: '', contact_number: '', address: '', gst_number: '', created_at: '' }}
           form={supForm} setForm={setSupForm}
           canEdit={canEdit} canDelete={canDelete}
+          loading={suppliersLoading} error={suppliersError} onRetry={loadSuppliers}
           renderRow={s => [
             <span className="font-medium">{s.supplier_name}</span>,
             <span className="text-gray-400">{s.contact_number || '—'}</span>,
@@ -310,14 +359,14 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
               else await api.createSupplier({ supplier_name: f.supplier_name!, contact_number: f.contact_number ?? '', address: f.address ?? '', gst_number: f.gst_number ?? '' })
               toast(f.id ? 'Supplier updated' : 'Supplier created')
               setSupForm(null)
-              api.getSuppliers().then(setSuppliers)
+              loadSuppliers()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
           onDelete={async id => {
             try {
               await api.deleteSupplier(id)
               toast('Supplier deleted')
-              api.getSuppliers().then(setSuppliers)
+              loadSuppliers()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
         />
@@ -330,6 +379,7 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
           emptyForm={{ warehouse_name: '', location_city: '', is_active: 1 }}
           form={whForm} setForm={setWhForm}
           canEdit={canEdit} canDelete={canDelete}
+          loading={warehousesLoading} error={warehousesError} onRetry={loadWarehouses}
           renderRow={w => [
             <span className={`font-semibold px-2 py-0.5 rounded border text-xs ${whColor(w.id)}`}>{w.warehouse_name}</span>,
             <span className="text-gray-400">{w.location_city || '—'}</span>,
@@ -362,14 +412,14 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
               else await api.createWarehouse({ warehouse_name: f.warehouse_name!, location_city: f.location_city ?? '', is_active: f.is_active ?? 1 })
               toast(f.id ? 'Warehouse updated' : 'Warehouse created')
               setWhForm(null)
-              api.getWarehouses().then(setWarehouses)
+              loadWarehouses()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
           onDelete={async id => {
             try {
               await api.deleteWarehouse(id)
               toast('Warehouse deleted')
-              api.getWarehouses().then(setWarehouses)
+              loadWarehouses()
             } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'err') }
           }}
         />

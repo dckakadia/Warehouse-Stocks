@@ -1,29 +1,15 @@
 import { useState, type FormEvent } from 'react'
+import Ic from '../icons'
 
 interface Props {
   onLogin: (username: string, password: string) => Promise<void>
+  reason?: string | null
 }
 
-function PasswordStrength({ password }: { password: string }) {
-  if (!password) return null
-  const score = password.length >= 12 ? 3 : password.length >= 8 ? 2 : 1
-  const labels = ['', 'Weak', 'Medium', 'Strong']
-  const colors = ['', 'bg-red-500', 'bg-yellow-400', 'bg-green-500']
-  return (
-    <div className="mt-1 flex items-center gap-2">
-      <div className="flex gap-1 flex-1">
-        {[1, 2, 3].map(i => (
-          <div key={i} className={`h-1 flex-1 rounded-full ${i <= score ? colors[score] : 'bg-gray-700'}`} />
-        ))}
-      </div>
-      <span className="text-xs text-gray-400">{labels[score]}</span>
-    </div>
-  )
-}
-
-export default function Login({ onLogin }: Props) {
+export default function Login({ onLogin, reason }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -53,6 +39,12 @@ export default function Login({ onLogin }: Props) {
           <p className="text-gray-400 text-sm mt-1">Warehouse Management System</p>
         </div>
 
+        {reason && (
+          <div className="mb-4 text-sm text-amber-300 bg-amber-900/30 border border-amber-700 rounded-lg px-3 py-2">
+            {reason}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="bg-gray-900 rounded-2xl p-6 shadow-xl space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Username</label>
@@ -69,16 +61,26 @@ export default function Login({ onLogin }: Props) {
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className={`w-full px-3 py-2 bg-gray-800 text-white rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${error && !password ? 'border-red-500' : 'border-gray-700'}`}
-              placeholder="Enter password"
-              disabled={loading}
-            />
-            <PasswordStrength password={password} />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className={`w-full px-3 py-2 pr-10 bg-gray-800 text-white rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${error && !password ? 'border-red-500' : 'border-gray-700'}`}
+                placeholder="Enter password"
+                disabled={loading}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                tabIndex={-1}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <Ic.Eye />
+              </button>
+            </div>
           </div>
 
           {error && (

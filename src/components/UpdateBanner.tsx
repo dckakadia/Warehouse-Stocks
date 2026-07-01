@@ -10,8 +10,7 @@ export default function UpdateBanner({ version, apkUrl }: { version: string; apk
   }
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[200] bg-blue-600 text-white shadow-xl"
-         style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <div className="bg-blue-600 text-white shadow-xl">
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold leading-tight">Update available — v{version}</p>

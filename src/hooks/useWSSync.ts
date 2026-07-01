@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-export function useWSSync(onRefresh: () => void) {
+export function useWSSync(onRefresh: (entity: string) => void) {
   const cbRef = useRef(onRefresh)
   cbRef.current = onRefresh
   useEffect(() => {
@@ -11,7 +11,7 @@ export function useWSSync(onRefresh: () => void) {
       ws = new WebSocket(`${proto}://${location.host}/ws`)
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data)
-        if (msg.event === 'data_changed') cbRef.current()
+        if (msg.event === 'data_changed') cbRef.current(msg.payload?.entity ?? 'all')
       }
       ws.onclose = () => { retry = setTimeout(connect, 3000) }
     }

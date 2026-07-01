@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as api from '../api'
 import type { CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, SupplierSummary, SupplierLedgerDetail, SupplierBatchRow, TransferRecord, DailyReportResponse } from '../api'
 import Ic from '../icons'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBlock from '../components/ErrorBlock'
+import Skeleton from '../components/Skeleton'
 import Lightbox from '../components/Lightbox'
 import { todayISO } from '../utils'
 
@@ -34,6 +36,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<CustomerLedgerDetail | null>(null)
   const [loadingList, setLoadingList] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [editOrder, setEditOrder] = useState<CustomerOrderRow | null>(null)
   const [editStatus, setEditStatus] = useState('')
@@ -45,9 +48,16 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
   const { add: toast } = useToast()
 
-  useEffect(() => {
-    api.getLedgerCustomers().then(rows => { setCustomers(rows); setLoadingList(false) })
+  const loadList = useCallback(() => {
+    setLoadingList(true)
+    setListError(null)
+    api.getLedgerCustomers()
+      .then(setCustomers)
+      .catch(err => setListError(err instanceof Error ? err.message : 'Failed to load customers'))
+      .finally(() => setLoadingList(false))
   }, [])
+
+  useEffect(() => { loadList() }, [loadList])
 
   const filtered = useMemo(() =>
     customers.filter(c =>
@@ -457,10 +467,24 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
           placeholder="Search customers…"
           className="w-full pl-9 pr-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
       </div>
-      {loadingList && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
-      {!loadingList && filtered.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No customers found</p>}
+      {loadingList && (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 bg-gray-900 border border-gray-800 rounded-xl">
+              <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-1/2" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+              <Skeleton className="h-4 w-12" />
+            </div>
+          ))}
+        </div>
+      )}
+      {!loadingList && listError && <ErrorBlock message={listError} onRetry={loadList} />}
+      {!loadingList && !listError && filtered.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No customers found</p>}
       <div className="space-y-2">
-        {filtered.map(c => (
+        {!loadingList && !listError && filtered.map(c => (
           <button key={c.id} onClick={() => openDetail(c.id)} disabled={loadingDetail}
             className="w-full flex items-center gap-3 px-4 py-3 bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-xl text-left transition-colors disabled:opacity-60">
             <span className="w-9 h-9 rounded-full bg-blue-900/30 border border-blue-800/60 flex items-center justify-center text-blue-300 font-bold text-sm flex-shrink-0">
@@ -488,6 +512,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<SupplierLedgerDetail | null>(null)
   const [loadingList, setLoadingList] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [editBatch, setEditBatch] = useState<SupplierBatchRow | null>(null)
   const [editBatchNumber, setEditBatchNumber] = useState('')
@@ -497,9 +522,16 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
   const { add: toast } = useToast()
 
-  useEffect(() => {
-    api.getLedgerSuppliers().then(rows => { setSuppliers(rows); setLoadingList(false) })
+  const loadList = useCallback(() => {
+    setLoadingList(true)
+    setListError(null)
+    api.getLedgerSuppliers()
+      .then(setSuppliers)
+      .catch(err => setListError(err instanceof Error ? err.message : 'Failed to load suppliers'))
+      .finally(() => setLoadingList(false))
   }, [])
+
+  useEffect(() => { loadList() }, [loadList])
 
   const filtered = useMemo(() =>
     suppliers.filter(s =>
@@ -704,10 +736,24 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
           placeholder="Search suppliers…"
           className="w-full pl-9 pr-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
       </div>
-      {loadingList && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
-      {!loadingList && filtered.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No suppliers found</p>}
+      {loadingList && (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 bg-gray-900 border border-gray-800 rounded-xl">
+              <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-1/2" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+              <Skeleton className="h-4 w-12" />
+            </div>
+          ))}
+        </div>
+      )}
+      {!loadingList && listError && <ErrorBlock message={listError} onRetry={loadList} />}
+      {!loadingList && !listError && filtered.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No suppliers found</p>}
       <div className="space-y-2">
-        {filtered.map(s => (
+        {!loadingList && !listError && filtered.map(s => (
           <button key={s.id} onClick={() => openDetail(s.id)} disabled={loadingDetail}
             className="w-full flex items-center gap-3 px-4 py-3 bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-xl text-left transition-colors disabled:opacity-60">
             <span className="w-9 h-9 rounded-full bg-purple-900/30 border border-purple-800/60 flex items-center justify-center text-purple-300 font-bold text-sm flex-shrink-0">
@@ -733,6 +779,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
 function TransferReport({ canEdit, canDelete }: RightsProps) {
   const [transfers, setTransfers] = useState<TransferRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -743,9 +790,16 @@ function TransferReport({ canEdit, canDelete }: RightsProps) {
   const [deleteTransferId, setDeleteTransferId] = useState<number | null>(null)
   const { add: toast } = useToast()
 
-  useEffect(() => {
-    api.getTransfers().then(rows => { setTransfers(rows); setLoading(false) })
+  const load = useCallback(() => {
+    setLoading(true)
+    setLoadError(null)
+    api.getTransfers()
+      .then(setTransfers)
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load transfers'))
+      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   const reload = async () => {
     const rows = await api.getTransfers()
@@ -964,13 +1018,24 @@ function TransferReport({ canEdit, canDelete }: RightsProps) {
         <div className="px-4 py-3 border-b border-gray-800">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Transfers ({filtered.length})</p>
         </div>
-        {loading && <p className="px-4 py-10 text-center text-sm text-gray-500">Loading…</p>}
-        {!loading && filtered.length === 0 && (
+        {loading && (
+          <div className="divide-y divide-gray-800">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-4 py-3 flex items-center gap-3">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-16 ml-auto" />
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && loadError && <ErrorBlock message={loadError} onRetry={load} />}
+        {!loading && !loadError && filtered.length === 0 && (
           <p className="px-4 py-10 text-center text-sm text-gray-500">
             {transfers.length === 0 ? 'No transfers recorded yet' : 'No transfers match your filters'}
           </p>
         )}
-        {!loading && filtered.length > 0 && (
+        {!loading && !loadError && filtered.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -1073,15 +1138,17 @@ function DailyReport() {
   const [toDate, setToDate] = useState(today)
   const [data, setData] = useState<DailyReportResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const { add: toast } = useToast()
 
   const load = async (from: string, to: string) => {
     setLoading(true)
+    setLoadError(null)
     try {
       const res = await api.getDailyReport(from, to)
       setData(res)
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to load daily report', 'err')
+      setLoadError(err instanceof Error ? err.message : 'Failed to load daily report')
     }
     setLoading(false)
   }
@@ -1281,9 +1348,19 @@ function DailyReport() {
         </div>
       </div>
 
-      {loading && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
+      {loading && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 text-center">
+              <Skeleton className="h-5 w-10 mx-auto mb-1.5" />
+              <Skeleton className="h-3 w-14 mx-auto" />
+            </div>
+          ))}
+        </div>
+      )}
+      {!loading && loadError && <ErrorBlock message={loadError} onRetry={() => load(fromDate, toDate)} />}
 
-      {!loading && data && (
+      {!loading && !loadError && data && (
         <>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
             {[

@@ -8,8 +8,12 @@ import { useAuth } from './hooks/useAuth'
 import { useWSSync } from './hooks/useWSSync'
 import { useToast } from './hooks/useToast'
 import { useAppUpdate } from './hooks/useAppUpdate'
+import { useSessionExpiry } from './hooks/useSessionExpiry'
+import { useOnlineStatus } from './hooks/useOnlineStatus'
 import Login from './components/Login'
 import UpdateBanner from './components/UpdateBanner'
+import SessionExpiryBanner from './components/SessionExpiryBanner'
+import OfflineBanner from './components/OfflineBanner'
 import CreateDispatchModal from './components/CreateDispatchModal'
 import Dashboard from './pages/Dashboard'
 import WarehouseApp from './pages/Warehouse'
@@ -19,24 +23,42 @@ import ReportPage from './pages/Report'
 
 type View = 'dashboard' | 'warehouse' | 'master' | 'report' | 'admin'
 
+function BannerStack({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="fixed top-0 left-0 right-0 z-[200] flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      {children}
+    </div>
+  )
+}
+
 export default function App() {
-  const { user, login, logout } = useAuth()
+  const { user, token, login, logout, refreshSession, logoutReason } = useAuth()
+  const { showWarning: showSessionWarning, dismiss: dismissSessionWarning } = useSessionExpiry(token)
   const updateInfo = useAppUpdate()
+  const isOnline = useOnlineStatus()
   const [view, setView] = useState<View>('dashboard')
   const [showDispatch, setShowDispatch] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [colors, setColors] = useState<ColorRow[]>([])
   const [refreshSig, setRefreshSig] = useState(0)
-  const refresh = useCallback(() => setRefreshSig(s => s + 1), [])
+  const [refreshEntity, setRefreshEntity] = useState('all')
+  const bumpRefresh = useCallback((entity: string) => {
+    setRefreshSig(s => s + 1)
+    setRefreshEntity(entity)
+  }, [])
+  // Manual trigger after locally creating a dispatch order — the server's own broadcast
+  // for the same mutation will also arrive via WS, this just avoids waiting on that round-trip.
+  const refresh = useCallback(() => bumpRefresh('dispatch'), [bumpRefresh])
   const { toasts } = useToast()
 
-  useWSSync(refresh)
+  useWSSync(bumpRefresh)
 
   useEffect(() => {
     if (!user) return
-    api.getCustomers().then(setCustomers)
-    api.getColors().then(setColors)
-  }, [refreshSig, user])
+    if (refreshSig > 0 && !['customers', 'items', 'all'].includes(refreshEntity)) return
+    api.getCustomers().then(setCustomers).catch(() => {})
+    api.getColors().then(setColors).catch(() => {})
+  }, [refreshSig, refreshEntity, user])
 
   // Page access is configurable per-user (manager, helper, and admin all use the same flags)
   const canViewDashboard = !user || !!user.can_view_dashboard
@@ -62,8 +84,11 @@ export default function App() {
   if (!user) {
     return (
       <>
-        {updateInfo && <UpdateBanner version={updateInfo.version} apkUrl={updateInfo.apk_url} />}
-        <Login onLogin={login} />
+        <BannerStack>
+          {!isOnline && <OfflineBanner />}
+          {updateInfo && <UpdateBanner version={updateInfo.version} apkUrl={updateInfo.apk_url} />}
+        </BannerStack>
+        <Login onLogin={login} reason={logoutReason} />
       </>
     )
   }
@@ -73,7 +98,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-      {updateInfo && <UpdateBanner version={updateInfo.version} apkUrl={updateInfo.apk_url} />}
+      <BannerStack>
+        {!isOnline && <OfflineBanner />}
+        {updateInfo && <UpdateBanner version={updateInfo.version} apkUrl={updateInfo.apk_url} />}
+        {showSessionWarning && (
+          <SessionExpiryBanner onReauth={refreshSession} onDismiss={dismissSessionWarning} />
+        )}
+      </BannerStack>
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-40" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
@@ -120,7 +151,7 @@ export default function App() {
               </span>
             )}
             <span className="text-xs text-gray-400 hidden sm:block">{user.username}</span>
-            <button onClick={logout} title="Sign out"
+            <button onClick={() => logout()} title="Sign out"
               className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
               <Ic.LogOut />
             </button>
@@ -131,11 +162,19 @@ export default function App() {
       {view === 'dashboard' && canViewDashboard && (
         <Dashboard
           refreshSig={refreshSig}
+          refreshEntity={refreshEntity}
           canEdit={canEdit}
           onCreateDispatch={() => setShowDispatch(true)}
         />
       )}
-      {view === 'warehouse' && canViewWarehouse && <WarehouseApp refreshSig={refreshSig} canEdit={canEdit} isManager={user.role === 'manager' || user.role === 'admin'} />}
+      {view === 'warehouse' && canViewWarehouse && (
+        <WarehouseApp
+          refreshSig={refreshSig}
+          refreshEntity={refreshEntity}
+          canEdit={canEdit}
+          isManager={user.role === 'manager' || user.role === 'admin'}
+        />
+      )}
       {view === 'master' && canViewMaster && <MasterPage canEdit={canEdit} canDelete={canDelete} />}
       {view === 'report' && canViewReport && <ReportPage canEdit={canEdit} canDelete={canDelete} />}
       {view === 'admin' && canViewAdminPanel && <AdminPage />}

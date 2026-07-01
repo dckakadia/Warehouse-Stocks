@@ -1,34 +1,56 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as api from '../api'
 import type { StockSummary, Warehouse } from '../api'
 import Ic from '../icons'
 import Lightbox from '../components/Lightbox'
+import ErrorBlock from '../components/ErrorBlock'
+import Skeleton from '../components/Skeleton'
 import { whColor, parseKgPerBag } from '../utils'
 
 interface Props {
   refreshSig: number
+  refreshEntity: string
   onCreateDispatch: () => void
   canEdit: boolean
 }
 
-export default function Dashboard({ refreshSig, onCreateDispatch, canEdit }: Props) {
+// Entities that affect what Dashboard shows — a broadcast for anything else
+// (customers, suppliers, users) is ignored so the page doesn't flash-refetch for no reason.
+const RELEVANT_ENTITIES = new Set(['inventory', 'dispatch', 'transfers', 'items', 'warehouses'])
+
+export default function Dashboard({ refreshSig, refreshEntity, onCreateDispatch, canEdit }: Props) {
   const [summary, setSummary] = useState<StockSummary[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [search, setSearch] = useState('')
   const [filterWid, setFilterWid] = useState<number | 'all'>('all')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [lightboxTitle, setLightboxTitle] = useState('')
+  const hasLoadedRef = useRef(false)
 
   const load = useCallback(async () => {
-    const [s, w] = await Promise.all([api.getStockSummary(), api.getWarehouses()])
-    setSummary(s)
-    setWarehouses(w)
-    setLoading(false)
+    const isInitial = !hasLoadedRef.current
+    if (isInitial) { setLoading(true); setError(null) }
+    try {
+      const [s, w] = await Promise.all([api.getStockSummary(), api.getWarehouses()])
+      setSummary(s)
+      setWarehouses(w)
+      hasLoadedRef.current = true
+    } catch (err) {
+      // Background refreshes fail silently and keep showing the last-known-good data;
+      // only the initial load surfaces a retry-able error block.
+      if (isInitial) setError(err instanceof Error ? err.message : 'Failed to load dashboard data')
+    } finally {
+      if (isInitial) setLoading(false)
+    }
   }, [])
 
-  useEffect(() => { load() }, [load, refreshSig])
+  useEffect(() => {
+    if (refreshSig > 0 && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
+    load()
+  }, [load, refreshSig, refreshEntity])
 
   const filtered = useMemo(() => {
     let data = filterWid === 'all'
@@ -96,7 +118,18 @@ export default function Dashboard({ refreshSig, onCreateDispatch, canEdit }: Pro
         ))}
       </div>
 
-      {!loading && (
+      {loading && (
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-center">
+              <Skeleton className="h-7 w-14 mx-auto mb-1.5" />
+              <Skeleton className="h-3 w-16 mx-auto" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && !error && (
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: 'Item Types', value: filtered.length },
@@ -111,11 +144,22 @@ export default function Dashboard({ refreshSig, onCreateDispatch, canEdit }: Pro
         </div>
       )}
 
-      {loading && <p className="text-center text-gray-500 py-16 text-sm">Loading…</p>}
-      {!loading && filtered.length === 0 && <p className="text-center text-gray-500 py-16 text-sm">No stock found</p>}
+      {loading && (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3">
+              <Skeleton className="w-11 h-11 rounded-lg flex-shrink-0" />
+              <Skeleton className="h-4 flex-1 max-w-40" />
+              <Skeleton className="h-5 w-12" />
+            </div>
+          ))}
+        </div>
+      )}
+      {!loading && error && <ErrorBlock message={error} onRetry={load} />}
+      {!loading && !error && filtered.length === 0 && <p className="text-center text-gray-500 py-16 text-sm">No stock found</p>}
 
       <div className="space-y-2">
-        {filtered.map(item => {
+        {!loading && !error && filtered.map(item => {
           const isOpen = expanded.has(item.color_name)
           return (
             <div key={item.color_name} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
