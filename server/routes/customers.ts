@@ -8,12 +8,23 @@ router.get('/', (_req, res) => {
 })
 
 router.post('/', (req, res) => {
-  const { customer_name, contact_number = '' } = req.body
+  const { customer_name, contact_number = '', gst_number = '' } = req.body
   if (!customer_name?.trim()) return res.status(400).json({ error: 'customer_name required' })
+  const name = customer_name.trim(), contact = contact_number.trim(), gst = gst_number.trim()
+
+  const dup = db.prepare(`
+    SELECT customer_name FROM customers
+    WHERE LOWER(customer_name) = LOWER(?)
+      OR (? != '' AND gst_number = ?)
+      OR (? != '' AND contact_number = ?)
+    LIMIT 1
+  `).get(name, gst, gst, contact, contact) as { customer_name: string } | undefined
+  if (dup) return res.status(409).json({ error: `Customer "${dup.customer_name}" already exists with the same name, GST number, or mobile number` })
+
   const result = db.prepare(
-    'INSERT INTO customers (customer_name, contact_number) VALUES (?, ?)'
-  ).run(customer_name.trim(), contact_number.trim())
-  res.status(201).json({ id: result.lastInsertRowid, customer_name, contact_number })
+    'INSERT INTO customers (customer_name, contact_number, gst_number) VALUES (?, ?, ?)'
+  ).run(name, contact, gst)
+  res.status(201).json({ id: result.lastInsertRowid, customer_name: name, contact_number: contact, gst_number: gst })
 })
 
 // GET recommended batch for a customer + color (shade matching)

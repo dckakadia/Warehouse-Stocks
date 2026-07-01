@@ -18,10 +18,13 @@ export const AUTH_SECRET = loadSecret()
 export interface TokenPayload {
   uid: number
   username: string
-  role: 'manager' | 'helper'
+  role: 'manager' | 'helper' | 'admin'
   can_view: number
   can_edit: number
   can_delete: number
+  can_view_dashboard: number
+  can_view_warehouse: number
+  can_view_master: number
   exp: number
 }
 

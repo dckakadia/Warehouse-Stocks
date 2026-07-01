@@ -216,13 +216,14 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
       {tab === 'customers' && (
         <MasterSection<Customer>
           title="Customers" icon={<Ic.User />} items={customers}
-          columns={['CUSTOMER NAME', 'CONTACT']}
-          emptyForm={{ customer_name: '', contact_number: '' }}
+          columns={['CUSTOMER NAME', 'CONTACT', 'GST NO']}
+          emptyForm={{ customer_name: '', contact_number: '', gst_number: '' }}
           form={custForm} setForm={setCustForm}
           canEdit={canEdit} canDelete={canDelete}
           renderRow={c => [
             <span className="font-medium">{c.customer_name}</span>,
             <span className="text-gray-400">{c.contact_number || '—'}</span>,
+            <span className="text-gray-400 font-mono text-xs">{c.gst_number || '—'}</span>,
           ]}
           renderForm={(f, set) => (
             <>
@@ -231,17 +232,24 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
                 <input autoFocus value={f.customer_name ?? ''} onChange={e => set({ ...f, customer_name: e.target.value })} required placeholder="e.g., Textile Mills Pvt Ltd"
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
               </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Contact Number</label>
-                <input value={f.contact_number ?? ''} onChange={e => set({ ...f, contact_number: e.target.value })} placeholder="+91-XXXXXXXXXX"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Contact Number</label>
+                  <input value={f.contact_number ?? ''} onChange={e => set({ ...f, contact_number: e.target.value })} placeholder="+91-XXXXXXXXXX"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">GST No</label>
+                  <input value={f.gst_number ?? ''} onChange={e => set({ ...f, gst_number: e.target.value.toUpperCase() })} placeholder="e.g., 22AAAAA0000A1Z5"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                </div>
               </div>
             </>
           )}
           onSave={async f => {
             try {
-              if (f.id) await api.updateCustomer(f.id, { customer_name: f.customer_name!, contact_number: f.contact_number ?? '' })
-              else await api.createCustomer(f.customer_name!, f.contact_number ?? '')
+              if (f.id) await api.updateCustomer(f.id, { customer_name: f.customer_name!, contact_number: f.contact_number ?? '', gst_number: f.gst_number ?? '' })
+              else await api.createCustomer(f.customer_name!, f.contact_number ?? '', f.gst_number ?? '')
               toast(f.id ? 'Customer updated' : 'Customer created')
               setCustForm(null)
               api.getMasterCustomers().then(setCustomers)
@@ -260,14 +268,15 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
       {tab === 'suppliers' && (
         <MasterSection<api.Supplier>
           title="Suppliers" icon={<Ic.Truck />} items={suppliers}
-          columns={['SUPPLIER NAME', 'CONTACT', 'ADDRESS']}
-          emptyForm={{ supplier_name: '', contact_number: '', address: '', created_at: '' }}
+          columns={['SUPPLIER NAME', 'CONTACT', 'ADDRESS', 'GST NO']}
+          emptyForm={{ supplier_name: '', contact_number: '', address: '', gst_number: '', created_at: '' }}
           form={supForm} setForm={setSupForm}
           canEdit={canEdit} canDelete={canDelete}
           renderRow={s => [
             <span className="font-medium">{s.supplier_name}</span>,
             <span className="text-gray-400">{s.contact_number || '—'}</span>,
             <span className="text-gray-400">{s.address || '—'}</span>,
+            <span className="text-gray-400 font-mono text-xs">{s.gst_number || '—'}</span>,
           ]}
           renderForm={(f, set) => (
             <>
@@ -288,12 +297,17 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
                 </div>
               </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">GST No</label>
+                <input value={f.gst_number ?? ''} onChange={e => set({ ...f, gst_number: e.target.value.toUpperCase() })} placeholder="e.g., 22AAAAA0000A1Z5"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+              </div>
             </>
           )}
           onSave={async f => {
             try {
-              if (f.id) await api.updateSupplier(f.id, { supplier_name: f.supplier_name!, contact_number: f.contact_number ?? '', address: f.address ?? '' })
-              else await api.createSupplier({ supplier_name: f.supplier_name!, contact_number: f.contact_number ?? '', address: f.address ?? '' })
+              if (f.id) await api.updateSupplier(f.id, { supplier_name: f.supplier_name!, contact_number: f.contact_number ?? '', address: f.address ?? '', gst_number: f.gst_number ?? '' })
+              else await api.createSupplier({ supplier_name: f.supplier_name!, contact_number: f.contact_number ?? '', address: f.address ?? '', gst_number: f.gst_number ?? '' })
               toast(f.id ? 'Supplier updated' : 'Supplier created')
               setSupForm(null)
               api.getSuppliers().then(setSuppliers)

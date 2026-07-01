@@ -47,7 +47,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS customers (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_name   TEXT NOT NULL,
-    contact_number  TEXT NOT NULL DEFAULT ''
+    contact_number  TEXT NOT NULL DEFAULT '',
+    gst_number      TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS dispatch_orders (
@@ -66,6 +67,7 @@ db.exec(`
     supplier_name   TEXT NOT NULL,
     contact_number  TEXT NOT NULL DEFAULT '',
     address         TEXT NOT NULL DEFAULT '',
+    gst_number      TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -94,10 +96,13 @@ db.exec(`
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    role          TEXT NOT NULL DEFAULT 'helper' CHECK(role IN ('manager','helper')),
+    role          TEXT NOT NULL DEFAULT 'helper' CHECK(role IN ('manager','helper','admin')),
     can_view      INTEGER NOT NULL DEFAULT 1,
     can_edit      INTEGER NOT NULL DEFAULT 0,
     can_delete    INTEGER NOT NULL DEFAULT 0,
+    can_view_dashboard INTEGER NOT NULL DEFAULT 1,
+    can_view_warehouse INTEGER NOT NULL DEFAULT 1,
+    can_view_master    INTEGER NOT NULL DEFAULT 1,
     is_active     INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -110,6 +115,13 @@ try { db.exec("ALTER TABLE items ADD COLUMN item_image TEXT DEFAULT NULL") } cat
 try { db.exec("ALTER TABLE batches ADD COLUMN notes TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
 // Add supplier_id to batches if not present
 try { db.exec("ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id) DEFAULT NULL") } catch { /* already exists */ }
+// Add per-page view flags to app_users if not present (existing DB)
+try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_dashboard INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
+try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_warehouse INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
+try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_master    INTEGER NOT NULL DEFAULT 1") } catch { /* already exists */ }
+// Add gst_number to customers/suppliers if not present (existing DB)
+try { db.exec("ALTER TABLE customers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
+try { db.exec("ALTER TABLE suppliers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
 
 /* ── Seed default admin if no users exist ── */
 const userCount = (db.prepare('SELECT COUNT(*) AS c FROM app_users').get() as { c: number }).c
@@ -191,6 +203,34 @@ if (transfersSql.includes("'20kg'") || transfersSql.includes('"20kg"')) {
     INSERT INTO stock_transfers_v2 SELECT * FROM stock_transfers;
     DROP TABLE stock_transfers;
     ALTER TABLE stock_transfers_v2 RENAME TO stock_transfers;
+  `)
+  db.pragma('foreign_keys = ON')
+}
+
+// Widen app_users.role CHECK constraint to allow 'admin' (user-management-only role)
+const appUsersSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='app_users'").get() as { sql: string } | undefined)?.sql ?? ''
+if (!appUsersSql.includes("'admin'")) {
+  db.pragma('foreign_keys = OFF')
+  db.exec(`
+    CREATE TABLE app_users_v2 (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      username      TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'helper' CHECK(role IN ('manager','helper','admin')),
+      can_view      INTEGER NOT NULL DEFAULT 1,
+      can_edit      INTEGER NOT NULL DEFAULT 0,
+      can_delete    INTEGER NOT NULL DEFAULT 0,
+      can_view_dashboard INTEGER NOT NULL DEFAULT 1,
+      can_view_warehouse INTEGER NOT NULL DEFAULT 1,
+      can_view_master    INTEGER NOT NULL DEFAULT 1,
+      is_active     INTEGER NOT NULL DEFAULT 1,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT INTO app_users_v2 (id, username, password_hash, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, created_at)
+    SELECT id, username, password_hash, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, created_at
+    FROM app_users;
+    DROP TABLE app_users;
+    ALTER TABLE app_users_v2 RENAME TO app_users;
   `)
   db.pragma('foreign_keys = ON')
 }

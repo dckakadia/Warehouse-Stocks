@@ -41,7 +41,7 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - **Storage:** sessionStorage (NOT localStorage — shared warehouse devices)
 - **Login:** `POST /api/auth/login` — rate limited 5 attempts / 15 min / IP (in-memory)
 - **Protection:** `app.use('/api', requireAuth)` in server/index.ts; `/api/auth/*` is public
-- **Rights middlewares:** `requireEdit`, `requireDelete`, `requireManager` in server/middleware/requireAuth.ts
+- **Rights middlewares:** `requireEdit`, `requireDelete`, `requireManager`, `requireUserAdmin` (manager or admin role) in server/middleware/requireAuth.ts
 - **Default admin:** Seeded on first run when `app_users` table is empty; credentials printed to PM2 logs
 - **Password hashing:** Node built-in `crypto.scryptSync` + random salt (no bcrypt dependency)
 - **Database wiped:** 2026-07-01 — fresh start. New default admin credentials were printed to PM2 logs at that time.
@@ -79,11 +79,11 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - `server/index.ts` — Express app + WebSocket server + route registration + request logger
 - `server/db.ts` — SQLite schema + migrations + default admin seed
 - `server/auth.ts` — Token sign/verify utilities, `AUTH_SECRET` loading
-- `server/middleware/requireAuth.ts` — `requireAuth`, `requireEdit`, `requireDelete`, `requireManager`
+- `server/middleware/requireAuth.ts` — `requireAuth`, `requireEdit`, `requireDelete`, `requireUserAdmin` (manager or admin role — the only role gate; admin has full access, same as manager)
 - `server/routes/auth.ts` — POST /api/auth/login + logout
-- `server/routes/admin.ts` — User CRUD + ledgers + export/import + Google Drive backup
-- `server/routes/masters.ts` — Items, suppliers, customers, warehouses CRUD
-- `server/routes/inwarding.ts` — Batch inward (all-or-nothing validation)
+- `server/routes/admin.ts` — Single router, `requireUserAdmin` applied to everything: User CRUD, ledgers, stock inward edit/delete, export/import, Google Drive backup. `DELETE /inward/batches/:id` and `DELETE /inward/inventory/:id` wrap their transaction in try/catch (July 2026 fix) — deleting a batch/inventory line with dispatch or transfer history throws a FK constraint error that previously crashed the process uncaught; now returns a 409 with a clear message instead.
+- `server/routes/masters.ts` — Items, suppliers, customers, warehouses CRUD. Customer/supplier create+update block duplicates: same name (case-insensitive), same non-empty `gst_number`, or same non-empty `contact_number` all return 409 `"<Name>" already exists with the same name, GST number, or mobile number`. `server/routes/customers.ts` (the quick-add endpoint used by the Dashboard's Add Customer modal) enforces the identical check so there's no bypass route.
+- `server/routes/inwarding.ts` — Batch inward (all-or-nothing validation). `PUT /admin/inward/batches/:id/full` (in admin.ts) mirrors this for editing an existing batch: replaces item/color, metadata, image, and the full set of inventory lines in one call — add/update/remove lines together, guarded against removing a line with pending dispatch orders.
 - `server/routes/transfers.ts` — Inter-warehouse stock transfers
 - `server/routes/dispatch.ts` — Dispatch orders
 
@@ -104,35 +104,40 @@ No server-side TypeScript compile needed — tsx runs `.ts` directly.
 - `src/components/AddCustomerModal.tsx` — Add customer modal
 - `src/components/CreateDispatchModal.tsx` — Create dispatch order modal
 - `src/pages/Dashboard.tsx` — Global stock summary, accordion by item
-- `src/pages/Warehouse.tsx` — Picking list (with search), inward, transfer tabs
+- `src/pages/Warehouse.tsx` — Picking list (with search), inward, transfer tabs. Records tab's "Edit batch" now opens a full multi-line editor (color/item, batch info, image, add/remove inventory lines across warehouses) matching the "+ Inward" creation form, calling `api.updateInwardBatchFull` — replaced the old batch-metadata-only + single-inventory-line-only edit modals (July 2026).
 - `src/pages/Master.tsx` — CRUD for items, customers, suppliers, warehouses
-- `src/pages/Admin.tsx` — User management + ledgers + Backup tab (manager-only)
+- `src/pages/Admin.tsx` — User management + Backup tab (manager and admin roles — identical access)
+- `src/pages/Report.tsx` — Customer Ledger + Supplier Ledger + Warehouse Transfers tabs (manager and admin roles; ledgers moved out of Admin.tsx July 2026, transfer report added July 2026). `ReportPage` takes `canEdit`/`canDelete` props (from the logged-in user's rights, same as Master/Warehouse pages) and threads them into all three tabs — edit/delete buttons are hidden, not just disabled, when the flag is off. Customer Ledger edits dispatch orders (existing `/admin/ledger/orders/:id`); Supplier Ledger edits/deletes the inward batch (`/admin/inward/batches/:id`, batch number/date/notes only — supplier assignment isn't editable from this view); Warehouse Transfers edits bags/notes or deletes a transfer via new `PUT`/`DELETE /api/transfers/:id`, which reconciles inventory in both the source and destination warehouse (mirrors the dispatch-order reconciliation pattern). When editing these reconciliation queries, use plain `UPDATE ... WHERE id = ?` on inventory rows known to exist — do NOT use `INSERT ... ON CONFLICT DO UPDATE` with a possibly-negative literal in `VALUES`, because SQLite validates CHECK constraints (`quantity_in_stock >= 0`) against the literal insert value before conflict resolution ever applies, so a legitimate net-positive update can fail spuriously.
 
 ## Database schema (SQLite, file: warehouse.db)
 - `items` — color/item master (color_name, hsn_code, item_image as base64)
 - `batches` — batch records per item
 - `warehouses` — warehouse master
 - `inventory` — stock per batch × warehouse × packing_size
-- `customers` — customer master
+- `customers` — customer master (`customer_name`, `contact_number`, `gst_number` — added July 2026)
 - `dispatch_orders` — dispatch orders (Pending → Picked/Cancelled)
 - `dispatch_logs` — confirmed dispatch history
-- `suppliers` — supplier master
+- `suppliers` — supplier master (`supplier_name`, `contact_number`, `address`, `gst_number` — added July 2026)
 - `stock_transfers` — inter-warehouse transfers
-- `app_users` — users with roles and rights: `role` (manager/helper), `can_view`, `can_edit`, `can_delete`
+- `app_users` — users with roles and rights: `role` (manager/helper/admin), `can_view`, `can_edit`, `can_delete`, `can_view_dashboard`, `can_view_warehouse`, `can_view_master`, `is_active` (role CHECK constraint widened July 2026 via table rebuild — see server/db.ts `app_users_v2` migration)
 
-## Roles and rights
-| Role | Can view | Can edit | Can delete | Admin panel |
-|------|----------|----------|------------|-------------|
-| manager | ✓ | ✓ | ✓ | ✓ |
-| helper | configurable | configurable | configurable | ✗ |
+## Roles and rights (added `admin` role July 2026)
+| Role | Dashboard/Warehouse/Master | Report (ledgers) | Admin panel | Notes |
+|------|------------------------------|-------------------|-------------|-------|
+| manager | configurable per-page (`can_view_dashboard/warehouse/master`) | ✓ | ✓ full (Users + Backup) | `can_edit`/`can_delete` still gate individual actions |
+| admin | configurable per-page (same flags) | ✓ | ✓ full (Users + Backup) | **Functionally identical to manager** — a separate role label only; `requireUserAdmin` backend middleware accepts both roles everywhere `requireManager` used to be manager-only |
+| helper | configurable per-page (same flags) | ✗ | ✗ | `can_edit`/`can_delete` configurable |
+
+Dashboard/Warehouse/Master page access is configurable per-user for all three roles via Admin → Users → "Page Access" (same UI, same flags, no role-based exclusions). Admin panel and Report access are role-based (`manager` or `admin`), not page-flags. The Users table has **RIGHTS** and **PAGES** columns showing each user's current access at a glance. Nav visibility is derived in `src/App.tsx` (`canViewDashboard/Warehouse/Master/Report/AdminPanel`) — Report/AdminPanel check role only; Dashboard/Warehouse/Master check the flags regardless of role.
 
 ## Navigation views
-| View | Description |
-|------|-------------|
-| Dashboard | Global stock summary, accordion by item |
-| Warehouse | Picking list (searchable), stock inward, inter-warehouse transfer |
-| Master | CRUD for items, customers, suppliers, warehouses |
-| Admin | Users · Customer Ledger · Supplier Ledger · Backup (manager only) |
+| View | Description | Access |
+|------|-------------|--------|
+| Dashboard | Global stock summary, accordion by item | any role if `can_view_dashboard` |
+| Warehouse | Picking list (searchable), stock inward, inter-warehouse transfer | any role if `can_view_warehouse` |
+| Master | CRUD for items, customers, suppliers, warehouses | any role if `can_view_master` |
+| Report | Customer Ledger · Supplier Ledger · Warehouse Transfers (date-filtered, print/PDF) | manager, admin |
+| Admin | Users · Backup | manager, admin |
 
 ## Dev commands
 ```bash

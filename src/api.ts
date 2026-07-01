@@ -44,10 +44,13 @@ export interface LoginResponse {
   user: {
     id: number
     username: string
-    role: 'manager' | 'helper'
+    role: 'manager' | 'helper' | 'admin'
     can_view: number
     can_edit: number
     can_delete: number
+    can_view_dashboard: number
+    can_view_warehouse: number
+    can_view_master: number
   }
 }
 
@@ -71,8 +74,8 @@ export const getBatches      = (colorName: string, warehouseId?: number) =>
 
 /* ── Customers ── */
 export const getCustomers  = () => request<Customer[]>('/customers')
-export const createCustomer = (customer_name: string, contact_number: string) =>
-  request<Customer>('/customers', { method: 'POST', body: JSON.stringify({ customer_name, contact_number }) })
+export const createCustomer = (customer_name: string, contact_number: string, gst_number: string = '') =>
+  request<Customer>('/customers', { method: 'POST', body: JSON.stringify({ customer_name, contact_number, gst_number }) })
 export const getRecommendedBatch = (customerId: number, colorName: string) =>
   request<{ recommended: RecommendedBatch | null }>(`/customers/${customerId}/recommended-batch?colorName=${encodeURIComponent(colorName)}`)
 
@@ -95,6 +98,10 @@ export const createTransfer = (body: TransferBody) =>
   request<unknown>('/transfers', { method: 'POST', body: JSON.stringify(body) })
 export const getTransfers = () =>
   request<TransferRecord[]>('/transfers')
+export const updateTransfer = (id: number, body: { bags?: number; notes?: string }) =>
+  request<{ success: boolean }>(`/transfers/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteTransfer = (id: number) =>
+  request<{ success: boolean }>(`/transfers/${id}`, { method: 'DELETE' })
 
 /* ── Masters ── */
 export const getItems      = () => request<Item[]>('/masters/items')
@@ -208,6 +215,7 @@ export interface Customer {
   id: number
   customer_name: string
   contact_number: string
+  gst_number: string
 }
 
 export interface RecommendedBatch {
@@ -256,6 +264,7 @@ export interface Supplier {
   supplier_name: string
   contact_number: string
   address: string
+  gst_number: string
   created_at: string
 }
 
@@ -274,10 +283,13 @@ export interface InwardBody {
 export interface AppUser {
   id: number
   username: string
-  role: 'manager' | 'helper'
+  role: 'manager' | 'helper' | 'admin'
   can_view: number
   can_edit: number
   can_delete: number
+  can_view_dashboard: number
+  can_view_warehouse: number
+  can_view_master: number
   is_active: number
   created_at: string
 }
@@ -285,17 +297,23 @@ export interface AppUser {
 export interface CreateUserBody {
   username: string
   password: string
-  role: 'manager' | 'helper'
+  role: 'manager' | 'helper' | 'admin'
   can_view: boolean
   can_edit: boolean
   can_delete: boolean
+  can_view_dashboard: boolean
+  can_view_warehouse: boolean
+  can_view_master: boolean
 }
 
 export interface UpdateUserBody {
-  role: 'manager' | 'helper'
+  role: 'manager' | 'helper' | 'admin'
   can_view: boolean
   can_edit: boolean
   can_delete: boolean
+  can_view_dashboard: boolean
+  can_view_warehouse: boolean
+  can_view_master: boolean
   is_active: boolean
   password?: string
 }
@@ -392,9 +410,21 @@ export interface InwardBatch {
   inventory: InwardInventoryLine[]
 }
 
+export interface InwardBatchFullLine {
+  id?: number
+  warehouse_id: number
+  packing_size: string
+  quantity_in_stock: number
+  godown_rack_location: string
+}
+
 export const getInwardBatches = () => request<InwardBatch[]>('/admin/inward')
 export const updateInwardBatch = (id: number, body: { batch_number: string; import_date: string; notes: string; supplier_id: number | null }) =>
   request<{ success: boolean }>(`/admin/inward/batches/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const updateInwardBatchFull = (id: number, body: {
+  color_name: string; batch_number: string; import_date: string; notes: string
+  supplier_id: number | null; item_image?: string | null; lines: InwardBatchFullLine[]
+}) => request<{ success: boolean }>(`/admin/inward/batches/${id}/full`, { method: 'PUT', body: JSON.stringify(body) })
 export const updateInwardInventory = (id: number, body: { quantity_in_stock: number; godown_rack_location: string }) =>
   request<{ success: boolean }>(`/admin/inward/inventory/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const deleteInwardBatch = (id: number) =>

@@ -60,17 +60,37 @@ router.get('/customers', (_req, res) => {
   res.json(db.prepare('SELECT * FROM customers ORDER BY customer_name').all())
 })
 
+function findDuplicateCustomer(name: string, gst: string, contact: string, excludeId?: number): { customer_name: string } | undefined {
+  return db.prepare(`
+    SELECT customer_name FROM customers
+    WHERE id != ?
+      AND (
+        LOWER(customer_name) = LOWER(?)
+        OR (? != '' AND gst_number = ?)
+        OR (? != '' AND contact_number = ?)
+      )
+    LIMIT 1
+  `).get(excludeId ?? -1, name, gst, gst, contact, contact) as { customer_name: string } | undefined
+}
+
 router.post('/customers', requireEdit, (req, res) => {
-  const { customer_name, contact_number = '' } = req.body
+  const { customer_name, contact_number = '', gst_number = '' } = req.body
   if (!customer_name?.trim()) return res.status(400).json({ error: 'customer_name required' })
-  const r = db.prepare('INSERT INTO customers (customer_name, contact_number) VALUES (?, ?)').run(customer_name.trim(), contact_number.trim())
-  res.status(201).json({ id: r.lastInsertRowid, customer_name: customer_name.trim(), contact_number: contact_number.trim() })
+  const name = customer_name.trim(), contact = contact_number.trim(), gst = gst_number.trim()
+  const dup = findDuplicateCustomer(name, gst, contact)
+  if (dup) return res.status(409).json({ error: `Customer "${dup.customer_name}" already exists with the same name, GST number, or mobile number` })
+  const r = db.prepare('INSERT INTO customers (customer_name, contact_number, gst_number) VALUES (?, ?, ?)').run(name, contact, gst)
+  res.status(201).json({ id: r.lastInsertRowid, customer_name: name, contact_number: contact, gst_number: gst })
 })
 
 router.put('/customers/:id', requireEdit, (req, res) => {
-  const { customer_name, contact_number } = req.body
+  const { customer_name, contact_number, gst_number } = req.body
   if (!customer_name?.trim()) return res.status(400).json({ error: 'customer_name required' })
-  db.prepare('UPDATE customers SET customer_name = ?, contact_number = ? WHERE id = ?').run(customer_name.trim(), contact_number?.trim() ?? '', req.params.id)
+  const id = Number(req.params.id)
+  const name = customer_name.trim(), contact = contact_number?.trim() ?? '', gst = gst_number?.trim() ?? ''
+  const dup = findDuplicateCustomer(name, gst, contact, id)
+  if (dup) return res.status(409).json({ error: `Customer "${dup.customer_name}" already exists with the same name, GST number, or mobile number` })
+  db.prepare('UPDATE customers SET customer_name = ?, contact_number = ?, gst_number = ? WHERE id = ?').run(name, contact, gst, id)
   res.json({ success: true })
 })
 
@@ -86,17 +106,37 @@ router.get('/suppliers', (_req, res) => {
   res.json(db.prepare('SELECT * FROM suppliers ORDER BY supplier_name').all())
 })
 
+function findDuplicateSupplier(name: string, gst: string, contact: string, excludeId?: number): { supplier_name: string } | undefined {
+  return db.prepare(`
+    SELECT supplier_name FROM suppliers
+    WHERE id != ?
+      AND (
+        LOWER(supplier_name) = LOWER(?)
+        OR (? != '' AND gst_number = ?)
+        OR (? != '' AND contact_number = ?)
+      )
+    LIMIT 1
+  `).get(excludeId ?? -1, name, gst, gst, contact, contact) as { supplier_name: string } | undefined
+}
+
 router.post('/suppliers', requireEdit, (req, res) => {
-  const { supplier_name, contact_number = '', address = '' } = req.body
+  const { supplier_name, contact_number = '', address = '', gst_number = '' } = req.body
   if (!supplier_name?.trim()) return res.status(400).json({ error: 'supplier_name required' })
-  const r = db.prepare('INSERT INTO suppliers (supplier_name, contact_number, address) VALUES (?, ?, ?)').run(supplier_name.trim(), contact_number.trim(), address.trim())
-  res.status(201).json({ id: r.lastInsertRowid, supplier_name: supplier_name.trim(), contact_number: contact_number.trim(), address: address.trim() })
+  const name = supplier_name.trim(), contact = contact_number.trim(), addr = address.trim(), gst = gst_number.trim()
+  const dup = findDuplicateSupplier(name, gst, contact)
+  if (dup) return res.status(409).json({ error: `Supplier "${dup.supplier_name}" already exists with the same name, GST number, or mobile number` })
+  const r = db.prepare('INSERT INTO suppliers (supplier_name, contact_number, address, gst_number) VALUES (?, ?, ?, ?)').run(name, contact, addr, gst)
+  res.status(201).json({ id: r.lastInsertRowid, supplier_name: name, contact_number: contact, address: addr, gst_number: gst })
 })
 
 router.put('/suppliers/:id', requireEdit, (req, res) => {
-  const { supplier_name, contact_number, address } = req.body
+  const { supplier_name, contact_number, address, gst_number } = req.body
   if (!supplier_name?.trim()) return res.status(400).json({ error: 'supplier_name required' })
-  db.prepare('UPDATE suppliers SET supplier_name = ?, contact_number = ?, address = ? WHERE id = ?').run(supplier_name.trim(), contact_number?.trim() ?? '', address?.trim() ?? '', req.params.id)
+  const id = Number(req.params.id)
+  const name = supplier_name.trim(), contact = contact_number?.trim() ?? '', addr = address?.trim() ?? '', gst = gst_number?.trim() ?? ''
+  const dup = findDuplicateSupplier(name, gst, contact, id)
+  if (dup) return res.status(409).json({ error: `Supplier "${dup.supplier_name}" already exists with the same name, GST number, or mobile number` })
+  db.prepare('UPDATE suppliers SET supplier_name = ?, contact_number = ?, address = ?, gst_number = ? WHERE id = ?').run(name, contact, addr, gst, id)
   res.json({ success: true })
 })
 

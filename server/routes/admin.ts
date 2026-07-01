@@ -4,14 +4,14 @@ import { execSync, execFile } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import db from '../db.js'
-import { requireManager } from '../middleware/requireAuth.js'
+import { requireUserAdmin } from '../middleware/requireAuth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BACKUP_SCRIPT = path.resolve(__dirname, '../../scripts/backup-db.sh')
 
 const router = Router()
-// All admin routes require manager role (requireAuth already applied globally)
-router.use(requireManager)
+// All admin routes: manager or admin role (admin has full access, same as manager)
+router.use(requireUserAdmin)
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('hex')
@@ -28,7 +28,7 @@ export function verifyPassword(password: string, stored: string): boolean {
 /* ── List all users (no password_hash) ── */
 router.get('/users', (_req, res) => {
   const rows = db.prepare(`
-    SELECT id, username, role, can_view, can_edit, can_delete, is_active, created_at
+    SELECT id, username, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, created_at
     FROM app_users
     ORDER BY created_at DESC
   `).all()
@@ -37,25 +37,28 @@ router.get('/users', (_req, res) => {
 
 /* ── Create user ── */
 router.post('/users', (req, res) => {
-  const { username, password, role, can_view, can_edit, can_delete } = req.body as {
+  const { username, password, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master } = req.body as {
     username: string
     password: string
-    role: 'manager' | 'helper'
+    role: 'manager' | 'helper' | 'admin'
     can_view: boolean
     can_edit: boolean
     can_delete: boolean
+    can_view_dashboard: boolean
+    can_view_warehouse: boolean
+    can_view_master: boolean
   }
 
   if (!username?.trim()) return res.status(400).json({ error: 'Username is required' })
   if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' })
-  if (!['manager', 'helper'].includes(role)) return res.status(400).json({ error: 'Invalid role' })
+  if (!['manager', 'helper', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' })
 
   const password_hash = hashPassword(password)
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO app_users (username, password_hash, role, can_view, can_edit, can_delete)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO app_users (username, password_hash, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const result = stmt.run(
       username.trim(),
@@ -64,9 +67,12 @@ router.post('/users', (req, res) => {
       can_view ? 1 : 0,
       can_edit  ? 1 : 0,
       can_delete ? 1 : 0,
+      can_view_dashboard ? 1 : 0,
+      can_view_warehouse ? 1 : 0,
+      can_view_master ? 1 : 0,
     )
     const user = db.prepare(
-      'SELECT id, username, role, can_view, can_edit, can_delete, is_active, created_at FROM app_users WHERE id = ?'
+      'SELECT id, username, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, created_at FROM app_users WHERE id = ?'
     ).get(result.lastInsertRowid)
     return res.status(201).json(user)
   } catch (err: unknown) {
@@ -79,16 +85,19 @@ router.post('/users', (req, res) => {
 /* ── Update user (role, rights, optional password, active) ── */
 router.put('/users/:id', (req, res) => {
   const id = Number(req.params.id)
-  const { role, can_view, can_edit, can_delete, is_active, password } = req.body as {
-    role: 'manager' | 'helper'
+  const { role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active, password } = req.body as {
+    role: 'manager' | 'helper' | 'admin'
     can_view: boolean
     can_edit: boolean
     can_delete: boolean
+    can_view_dashboard: boolean
+    can_view_warehouse: boolean
+    can_view_master: boolean
     is_active: boolean
     password?: string
   }
 
-  if (!['manager', 'helper'].includes(role)) return res.status(400).json({ error: 'Invalid role' })
+  if (!['manager', 'helper', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' })
 
   const existing = db.prepare('SELECT id FROM app_users WHERE id = ?').get(id)
   if (!existing) return res.status(404).json({ error: 'User not found' })
@@ -96,12 +105,12 @@ router.put('/users/:id', (req, res) => {
   if (password) {
     if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' })
     db.prepare(`
-      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, is_active=?, password_hash=? WHERE id=?
-    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, is_active ? 1 : 0, hashPassword(password), id)
+      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, can_view_dashboard=?, can_view_warehouse=?, can_view_master=?, is_active=?, password_hash=? WHERE id=?
+    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, can_view_dashboard ? 1 : 0, can_view_warehouse ? 1 : 0, can_view_master ? 1 : 0, is_active ? 1 : 0, hashPassword(password), id)
   } else {
     db.prepare(`
-      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, is_active=? WHERE id=?
-    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, is_active ? 1 : 0, id)
+      UPDATE app_users SET role=?, can_view=?, can_edit=?, can_delete=?, can_view_dashboard=?, can_view_warehouse=?, can_view_master=?, is_active=? WHERE id=?
+    `).run(role, can_view ? 1 : 0, can_edit ? 1 : 0, can_delete ? 1 : 0, can_view_dashboard ? 1 : 0, can_view_warehouse ? 1 : 0, can_view_master ? 1 : 0, is_active ? 1 : 0, id)
   }
 
   return res.json({ success: true })
@@ -371,6 +380,100 @@ router.put('/inward/batches/:id', (req, res) => {
   }
 })
 
+/* Full edit of a batch: item/color, metadata, image, and all its inventory lines at once —
+   same shape as the "+ Inward" creation flow (server/routes/inwarding.ts), but replacing an
+   existing batch's lines instead of adding on top of them. */
+router.put('/inward/batches/:id/full', (req, res) => {
+  const id = Number(req.params.id)
+  const { color_name, batch_number, import_date, notes, supplier_id, item_image, lines } = req.body as {
+    color_name: string; batch_number: string; import_date: string; notes: string
+    supplier_id: number | null; item_image?: string | null
+    lines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; godown_rack_location: string }[]
+  }
+
+  if (!color_name?.trim() || !batch_number?.trim() || !import_date?.trim()) {
+    return res.status(400).json({ error: 'color_name, batch_number, and import_date are required' })
+  }
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return res.status(400).json({ error: 'At least one inventory line is required' })
+  }
+
+  const validatedLines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; godown_rack_location: string }[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]
+    const wid = Number(l.warehouse_id)
+    if (!Number.isInteger(wid) || wid <= 0) return res.status(400).json({ error: `Line ${i + 1}: warehouse is required` })
+    const ps = typeof l.packing_size === 'string' ? l.packing_size.trim() : ''
+    if (!ps) return res.status(400).json({ error: `Line ${i + 1}: packing size is required` })
+    const qty = Number(l.quantity_in_stock)
+    if (!Number.isInteger(qty) || qty < 0) return res.status(400).json({ error: `Line ${i + 1}: quantity must be a non-negative integer` })
+    validatedLines.push({ id: l.id, warehouse_id: wid, packing_size: ps, quantity_in_stock: qty, godown_rack_location: l.godown_rack_location ?? '' })
+  }
+
+  if (item_image !== undefined && item_image !== null) {
+    if (typeof item_image !== 'string' || !item_image.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'item_image must be a base64 data URI (data:image/...)' })
+    }
+  }
+
+  try {
+    db.transaction(() => {
+      const existingBatch = db.prepare('SELECT id, item_id FROM batches WHERE id = ?').get(id) as { id: number; item_id: number } | undefined
+      if (!existingBatch) throw new Error('Batch not found')
+
+      const item = db.prepare('SELECT id FROM items WHERE color_name = ?').get(color_name.trim()) as { id: number } | undefined
+      if (!item) throw new Error(`Unknown color: ${color_name}`)
+
+      for (const l of validatedLines) {
+        if (!db.prepare('SELECT id FROM warehouses WHERE id = ?').get(l.warehouse_id)) {
+          throw new Error(`Unknown warehouse id: ${l.warehouse_id}`)
+        }
+      }
+
+      if (item_image) {
+        db.prepare('UPDATE items SET item_image = ? WHERE id = ?').run(item_image, item.id)
+      }
+
+      db.prepare('UPDATE batches SET item_id=?, batch_number=?, import_date=?, notes=?, supplier_id=? WHERE id=?')
+        .run(item.id, batch_number.trim(), import_date.trim(), notes ?? '', supplier_id ? Number(supplier_id) : null, id)
+
+      const existingLines = db.prepare('SELECT id, warehouse_id, packing_size FROM inventory WHERE batch_id = ?').all(id) as
+        { id: number; warehouse_id: number; packing_size: string }[]
+      const keptIds = new Set(validatedLines.filter(l => l.id != null).map(l => l.id))
+
+      // Remove lines the user dropped from the form — guarded against pending dispatch orders
+      for (const existing of existingLines) {
+        if (keptIds.has(existing.id)) continue
+        const { cnt } = db.prepare(
+          "SELECT COUNT(*) AS cnt FROM dispatch_orders WHERE batch_id=? AND warehouse_id=? AND packing_size=? AND status='Pending'"
+        ).get(id, existing.warehouse_id, existing.packing_size) as { cnt: number }
+        if (cnt > 0) {
+          throw new Error(`Cannot remove ${existing.packing_size} line: ${cnt} pending order(s) use it`)
+        }
+        db.prepare('DELETE FROM inventory WHERE id = ?').run(existing.id)
+      }
+
+      // Update existing lines / insert new ones
+      for (const l of validatedLines) {
+        if (l.id != null && existingLines.some(e => e.id === l.id)) {
+          db.prepare('UPDATE inventory SET warehouse_id=?, packing_size=?, quantity_in_stock=?, godown_rack_location=? WHERE id=?')
+            .run(l.warehouse_id, l.packing_size, l.quantity_in_stock, l.godown_rack_location, l.id)
+        } else {
+          db.prepare(
+            'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, godown_rack_location) VALUES (?, ?, ?, ?, ?)'
+          ).run(id, l.warehouse_id, l.packing_size, l.quantity_in_stock, l.godown_rack_location)
+        }
+      }
+    })()
+    return res.json({ success: true })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (msg.includes('UNIQUE')) return res.status(409).json({ error: 'Duplicate batch number or inventory line (warehouse + packing size already exists)' })
+    if (msg.includes('FOREIGN KEY')) return res.status(409).json({ error: 'Cannot save: this batch has dispatch or transfer history that conflicts with the change' })
+    return res.status(409).json({ error: msg })
+  }
+})
+
 /* Edit an inventory line (quantity + godown location) */
 router.put('/inward/inventory/:id', (req, res) => {
   const id = Number(req.params.id)
@@ -398,11 +501,19 @@ router.delete('/inward/batches/:id', (req, res) => {
   if (cnt > 0) {
     return res.status(409).json({ error: `Cannot delete: ${cnt} pending dispatch order(s) use this batch` })
   }
-  db.transaction(() => {
-    db.prepare('DELETE FROM inventory WHERE batch_id=?').run(id)
-    db.prepare('DELETE FROM batches WHERE id=?').run(id)
-  })()
-  return res.json({ success: true })
+  try {
+    db.transaction(() => {
+      db.prepare('DELETE FROM inventory WHERE batch_id=?').run(id)
+      db.prepare('DELETE FROM batches WHERE id=?').run(id)
+    })()
+    return res.json({ success: true })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (msg.includes('FOREIGN KEY')) {
+      return res.status(409).json({ error: 'Cannot delete: this batch has dispatch or transfer history' })
+    }
+    return res.status(500).json({ error: msg })
+  }
 })
 
 /* Delete a single inventory line */
@@ -418,8 +529,16 @@ router.delete('/inward/inventory/:id', (req, res) => {
   if (cnt > 0) {
     return res.status(409).json({ error: `Cannot delete: ${cnt} pending order(s) use this inventory line` })
   }
-  db.prepare('DELETE FROM inventory WHERE id=?').run(id)
-  return res.json({ success: true })
+  try {
+    db.prepare('DELETE FROM inventory WHERE id=?').run(id)
+    return res.json({ success: true })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (msg.includes('FOREIGN KEY')) {
+      return res.status(409).json({ error: 'Cannot delete: this inventory line has dispatch or transfer history' })
+    }
+    return res.status(500).json({ error: msg })
+  }
 })
 
 /* ══════════════════════════════════════════════

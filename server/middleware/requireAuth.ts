@@ -26,9 +26,9 @@ export function requireDelete(req: Request, res: Response, next: NextFunction) {
   next()
 }
 
-// Convenience: require manager role (admin panel)
-export function requireManager(req: Request, res: Response, next: NextFunction) {
+// Convenience: require manager or admin role (admin panel — admin has full access, same as manager)
+export function requireUserAdmin(req: Request, res: Response, next: NextFunction) {
   const user = res.locals.user as TokenPayload | undefined
-  if (user?.role !== 'manager') return res.status(403).json({ error: 'Manager role required' })
+  if (user?.role !== 'manager' && user?.role !== 'admin') return res.status(403).json({ error: 'Manager or admin role required' })
   next()
 }

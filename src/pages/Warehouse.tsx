@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as api from '../api'
-import type { DispatchOrder, ColorRow, Warehouse as WarehouseType, BatchRow, InwardBatch, InwardInventoryLine } from '../api'
+import type { DispatchOrder, ColorRow, Warehouse as WarehouseType, BatchRow, InwardBatch } from '../api'
 import Ic from '../icons'
 import { todayISO, compressImage, whColor } from '../utils'
 import { useToast } from '../hooks/useToast'
@@ -51,13 +51,14 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const [recordsSearch, setRecordsSearch] = useState('')
   const [expandedBatchId, setExpandedBatchId] = useState<number | null>(null)
   const [editBatch, setEditBatch] = useState<InwardBatch | null>(null)
-  const [editBatchForm, setEditBatchForm] = useState({ batch_number: '', import_date: '', notes: '', supplier_id: '' })
-  const [editInvLine, setEditInvLine] = useState<InwardInventoryLine | null>(null)
-  const [editInvForm, setEditInvForm] = useState({ quantity_in_stock: '', godown_rack_location: '' })
+  const [editBatchForm, setEditBatchForm] = useState({ color_name: '', batch_number: '', import_date: '', notes: '', supplier_id: '', item_image: null as string | null })
+  const [editLines, setEditLines] = useState<Array<{ id?: number; warehouse_id: number | ''; packing_size: string; quantity_in_stock: string; godown_rack_location: string }>>([])
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
   const [deleteInvLineId, setDeleteInvLineId] = useState<number | null>(null)
   const [recordsSaving, setRecordsSaving] = useState(false)
   const [recordsLoading, setRecordsLoading] = useState(false)
+  const editGalleryRef = useRef<HTMLInputElement>(null)
+  const editCameraRef  = useRef<HTMLInputElement>(null)
 
   const loadOrders = useCallback(async () => {
     const rows = await api.getDispatchOrders('Pending')
@@ -119,50 +120,53 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
   const openEditBatch = (b: InwardBatch) => {
     setEditBatch(b)
     setEditBatchForm({
+      color_name: b.color_name,
       batch_number: b.batch_number,
       import_date: b.import_date,
       notes: b.notes ?? '',
       supplier_id: b.supplier_id != null ? String(b.supplier_id) : '',
+      item_image: b.item_image,
     })
+    setEditLines(b.inventory.map(l => ({
+      id: l.id,
+      warehouse_id: l.warehouse_id,
+      packing_size: l.packing_size,
+      quantity_in_stock: String(l.quantity_in_stock),
+      godown_rack_location: l.godown_rack_location ?? '',
+    })))
   }
 
-  const openEditInvLine = (line: InwardInventoryLine) => {
-    setEditInvLine(line)
-    setEditInvForm({
-      quantity_in_stock: String(line.quantity_in_stock),
-      godown_rack_location: line.godown_rack_location ?? '',
-    })
+  const handleEditImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const compressed = await compressImage(file)
+    setEditBatchForm(f => ({ ...f, item_image: compressed }))
+    e.target.value = ''
   }
 
-  const handleSaveBatch = async () => {
+  const handleSaveBatchFull = async () => {
     if (!editBatch) return
+    const validLines = editLines.filter(l => l.warehouse_id !== '' && l.packing_size.trim() && l.quantity_in_stock !== '')
+    if (validLines.length === 0) { toast('Enter at least one inventory line', 'err'); return }
     setRecordsSaving(true)
     try {
-      await api.updateInwardBatch(editBatch.id, {
+      await api.updateInwardBatchFull(editBatch.id, {
+        color_name: editBatchForm.color_name,
         batch_number: editBatchForm.batch_number,
         import_date: editBatchForm.import_date,
         notes: editBatchForm.notes,
         supplier_id: editBatchForm.supplier_id ? Number(editBatchForm.supplier_id) : null,
+        item_image: editBatchForm.item_image,
+        lines: validLines.map(l => ({
+          id: l.id,
+          warehouse_id: l.warehouse_id as number,
+          packing_size: l.packing_size.trim(),
+          quantity_in_stock: parseInt(l.quantity_in_stock),
+          godown_rack_location: l.godown_rack_location.trim(),
+        })),
       })
       toast('Batch updated ✓', 'ok')
       setEditBatch(null)
-      await loadInwardBatches()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Update failed', 'err')
-    }
-    setRecordsSaving(false)
-  }
-
-  const handleSaveInvLine = async () => {
-    if (!editInvLine) return
-    setRecordsSaving(true)
-    try {
-      await api.updateInwardInventory(editInvLine.id, {
-        quantity_in_stock: Number(editInvForm.quantity_in_stock),
-        godown_rack_location: editInvForm.godown_rack_location,
-      })
-      toast('Inventory updated ✓', 'ok')
-      setEditInvLine(null)
       await loadInwardBatches()
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Update failed', 'err')
@@ -613,10 +617,6 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                               </p>
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
-                              <button onClick={() => openEditInvLine(line)} title="Edit inventory line"
-                                className="p-1.5 text-gray-500 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors">
-                                <Ic.Pencil />
-                              </button>
                               <button onClick={() => setDeleteInvLineId(line.id)} title="Delete inventory line"
                                 className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors">
                                 <Ic.Trash />
@@ -632,12 +632,23 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
             })}
           </div>
 
-          {/* Edit Batch Modal */}
+          {/* Edit Batch Modal — full editor, same fields/shape as "+ Inward" */}
           {editBatch && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-              <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
-                <p className="text-sm font-semibold text-white mb-4">Edit Batch — <span className="text-blue-400">{editBatch.color_name}</span></p>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 overflow-y-auto">
+              <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-md w-full shadow-2xl my-auto">
+                <p className="text-sm font-semibold text-white mb-4">Edit Batch</p>
+
+                <input ref={editGalleryRef} type="file" accept="image/*" className="hidden" onChange={handleEditImageFile} />
+                <input ref={editCameraRef}  type="file" accept="image/*" capture="environment" className="hidden" onChange={handleEditImageFile} />
+
                 <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Color / Item <span className="text-red-400">*</span></label>
+                    <select value={editBatchForm.color_name} onChange={e => setEditBatchForm(f => ({ ...f, color_name: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 appearance-none">
+                      {allItems.map(c => <option key={c.id} value={c.color_name}>{c.color_name}</option>)}
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Batch Number</label>
                     <input value={editBatchForm.batch_number} onChange={e => setEditBatchForm(f => ({ ...f, batch_number: e.target.value }))}
@@ -661,44 +672,74 @@ export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) 
                     <textarea value={editBatchForm.notes} onChange={e => setEditBatchForm(f => ({ ...f, notes: e.target.value }))}
                       rows={2} className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 resize-none" />
                   </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Item Image</label>
+                    {editBatchForm.item_image ? (
+                      <div className="flex items-center gap-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
+                        <img src={editBatchForm.item_image} alt="Preview" className="w-16 h-16 object-cover rounded-lg border border-gray-600 flex-shrink-0" />
+                        <div className="flex flex-col gap-2 min-w-0">
+                          <button type="button" onClick={() => editGalleryRef.current?.click()}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+                            <Ic.Image /> Gallery
+                          </button>
+                          <button type="button" onClick={() => setEditBatchForm(f => ({ ...f, item_image: null }))}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg text-xs font-medium transition-colors">
+                            <Ic.Trash /> Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => editGalleryRef.current?.click()}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors">
+                        <Ic.Image /> Choose from Gallery
+                      </button>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Inventory Lines <span className="text-red-400">*</span></label>
+                    <div className="space-y-2">
+                      {editLines.map((line, idx) => (
+                        <div key={idx} className="flex flex-wrap gap-2 items-center bg-gray-800/40 border border-gray-700 rounded-lg p-2">
+                          <select value={line.warehouse_id}
+                            onChange={e => { const v = e.target.value ? Number(e.target.value) : ''; setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, warehouse_id: v } : l)) }}
+                            className="flex-1 min-w-24 px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 appearance-none">
+                            <option value="">Warehouse</option>
+                            {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
+                          </select>
+                          <input type="text" value={line.packing_size}
+                            onChange={e => { const v = e.target.value; setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, packing_size: v } : l)) }}
+                            placeholder="Pack (20kg)"
+                            className="w-24 px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                          <input type="number" min="0" value={line.quantity_in_stock}
+                            onChange={e => { const v = e.target.value; setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity_in_stock: v } : l)) }}
+                            placeholder="Qty"
+                            className="w-16 px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                          <input type="text" value={line.godown_rack_location}
+                            onChange={e => { const v = e.target.value; setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, godown_rack_location: v } : l)) }}
+                            placeholder="Rack (opt.)"
+                            className="w-24 px-2 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                          {editLines.length > 1 && (
+                            <button type="button" onClick={() => setEditLines(prev => prev.filter((_, i) => i !== idx))}
+                              className="p-1.5 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0">
+                              <Ic.Minus />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setEditLines(prev => [...prev, { warehouse_id: '', packing_size: '', quantity_in_stock: '', godown_rack_location: '' }])}
+                      className="mt-2 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                      <Ic.Plus /> Add Line
+                    </button>
+                  </div>
                 </div>
+
                 <div className="flex gap-2 mt-5">
                   <button onClick={() => setEditBatch(null)}
                     className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Cancel</button>
-                  <button onClick={handleSaveBatch} disabled={recordsSaving || !editBatchForm.batch_number.trim()}
-                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
-                    {recordsSaving ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Edit Inventory Line Modal */}
-          {editInvLine && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-              <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
-                <p className="text-sm font-semibold text-white mb-1">Edit Inventory Line</p>
-                <p className="text-xs text-gray-400 mb-4">{editInvLine.warehouse_name} · {editInvLine.packing_size}</p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Quantity (bags)</label>
-                    <input type="number" min="0" value={editInvForm.quantity_in_stock}
-                      onChange={e => setEditInvForm(f => ({ ...f, quantity_in_stock: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Godown / Rack Location</label>
-                    <input value={editInvForm.godown_rack_location}
-                      onChange={e => setEditInvForm(f => ({ ...f, godown_rack_location: e.target.value }))}
-                      placeholder="e.g. A-1, Rack 3"
-                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-5">
-                  <button onClick={() => setEditInvLine(null)}
-                    className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Cancel</button>
-                  <button onClick={handleSaveInvLine} disabled={recordsSaving || editInvForm.quantity_in_stock === ''}
+                  <button onClick={handleSaveBatchFull} disabled={recordsSaving || !editBatchForm.batch_number.trim() || !editBatchForm.color_name}
                     className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
                     {recordsSaving ? 'Saving…' : 'Save'}
                   </button>

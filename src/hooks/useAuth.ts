@@ -4,10 +4,13 @@ import { login as apiLogin, setAuthToken, setUnauthorizedCallback, getStoredToke
 export interface AuthUser {
   id: number
   username: string
-  role: 'manager' | 'helper'
+  role: 'manager' | 'helper' | 'admin'
   can_view: number
   can_edit: number
   can_delete: number
+  can_view_dashboard: number
+  can_view_warehouse: number
+  can_view_master: number
 }
 
 function parseTokenUser(token: string): AuthUser | null {
@@ -24,6 +27,9 @@ function parseTokenUser(token: string): AuthUser | null {
       can_view: payload.can_view,
       can_edit: payload.can_edit,
       can_delete: payload.can_delete,
+      can_view_dashboard: payload.can_view_dashboard,
+      can_view_warehouse: payload.can_view_warehouse,
+      can_view_master: payload.can_view_master,
     }
   } catch {
     return null

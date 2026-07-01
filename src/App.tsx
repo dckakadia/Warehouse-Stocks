@@ -16,8 +16,9 @@ import Dashboard from './pages/Dashboard'
 import WarehouseApp from './pages/Warehouse'
 import MasterPage from './pages/Master'
 import AdminPage from './pages/Admin'
+import ReportPage from './pages/Report'
 
-type View = 'dashboard' | 'warehouse' | 'master' | 'admin'
+type View = 'dashboard' | 'warehouse' | 'master' | 'report' | 'admin'
 
 export default function App() {
   const { user, login, logout } = useAuth()
@@ -39,10 +40,26 @@ export default function App() {
     api.getColors().then(setColors)
   }, [refreshSig, user])
 
-  // Redirect away from admin view if user loses manager role (e.g. after re-login)
+  // Page access is configurable per-user (manager, helper, and admin all use the same flags)
+  const canViewDashboard = !user || !!user.can_view_dashboard
+  const canViewWarehouse = !user || !!user.can_view_warehouse
+  const canViewMaster    = !user || !!user.can_view_master
+  // Report (Customer/Supplier ledger) and Admin panel: manager and admin roles, full access
+  const canViewReport     = user?.role === 'manager' || user?.role === 'admin'
+  const canViewAdminPanel = user?.role === 'manager' || user?.role === 'admin'
+  const allowedViews: View[] = [
+    ...(canViewDashboard ? ['dashboard' as const] : []),
+    ...(canViewWarehouse ? ['warehouse' as const] : []),
+    ...(canViewMaster ? ['master' as const] : []),
+    ...(canViewReport ? ['report' as const] : []),
+    ...(canViewAdminPanel ? ['admin' as const] : []),
+  ]
+
+  // Redirect away from a view the user no longer has access to (e.g. after re-login or rights change)
   useEffect(() => {
-    if (view === 'admin' && user?.role !== 'manager') setView('dashboard')
-  }, [user, view])
+    if (!user) return
+    if (!allowedViews.includes(view) && allowedViews.length > 0) setView(allowedViews[0])
+  }, [user, view, allowedViews])
 
   const handleAddCustomer = async (name: string, contact: string) => {
     const c = await api.createCustomer(name, contact)
@@ -73,19 +90,31 @@ export default function App() {
             <p className="text-sm font-bold text-white truncate hidden sm:block">Glass Beads WMS</p>
           </div>
           <nav className="ml-2 flex items-center gap-1 flex-1 overflow-x-auto">
+            {canViewDashboard && (
             <button onClick={() => setView('dashboard')}
               className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${view === 'dashboard' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800'}`}>
               <Ic.Monitor /><span className="hidden sm:inline">Dashboard</span>
             </button>
+            )}
+            {canViewWarehouse && (
             <button onClick={() => setView('warehouse')}
               className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${view === 'warehouse' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}>
               <Ic.Building /><span className="hidden sm:inline">Warehouse</span>
             </button>
+            )}
+            {canViewMaster && (
             <button onClick={() => setView('master')}
               className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${view === 'master' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}>
               <Ic.Database /><span className="hidden sm:inline">Master</span>
             </button>
-            {user.role === 'manager' && (
+            )}
+            {canViewReport && (
+            <button onClick={() => setView('report')}
+              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${view === 'report' ? 'bg-teal-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}>
+              <Ic.Clipboard /><span className="hidden sm:inline">Report</span>
+            </button>
+            )}
+            {canViewAdminPanel && (
               <button onClick={() => setView('admin')}
                 className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${view === 'admin' ? 'bg-rose-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}>
                 <Ic.Shield /><span className="hidden sm:inline">Admin</span>
@@ -107,7 +136,7 @@ export default function App() {
         </div>
       </header>
 
-      {view === 'dashboard' && (
+      {view === 'dashboard' && canViewDashboard && (
         <Dashboard
           refreshSig={refreshSig}
           canEdit={canEdit}
@@ -115,9 +144,15 @@ export default function App() {
           onCreateDispatch={() => setShowDispatch(true)}
         />
       )}
-      {view === 'warehouse' && <WarehouseApp refreshSig={refreshSig} canEdit={canEdit} isManager={user.role === 'manager'} />}
-      {view === 'master' && <MasterPage canEdit={canEdit} canDelete={canDelete} />}
-      {view === 'admin' && user.role === 'manager' && <AdminPage />}
+      {view === 'warehouse' && canViewWarehouse && <WarehouseApp refreshSig={refreshSig} canEdit={canEdit} isManager={user.role === 'manager'} />}
+      {view === 'master' && canViewMaster && <MasterPage canEdit={canEdit} canDelete={canDelete} />}
+      {view === 'report' && canViewReport && <ReportPage canEdit={canEdit} canDelete={canDelete} />}
+      {view === 'admin' && canViewAdminPanel && <AdminPage />}
+      {allowedViews.length === 0 && (
+        <main className="max-w-lg mx-auto px-4 py-16 text-center text-gray-400">
+          <p className="text-sm">You don't have access to any pages. Contact a manager to update your permissions.</p>
+        </main>
+      )}
 
       {showAddCustomer && canEdit && (
         <AddCustomerModal onClose={() => setShowAddCustomer(false)} onAdd={handleAddCustomer} />

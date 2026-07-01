@@ -45,11 +45,13 @@ router.post('/login', (req, res) => {
   }
 
   const user = db.prepare(
-    'SELECT id, username, password_hash, role, can_view, can_edit, can_delete, is_active FROM app_users WHERE username = ?'
+    'SELECT id, username, password_hash, role, can_view, can_edit, can_delete, can_view_dashboard, can_view_warehouse, can_view_master, is_active FROM app_users WHERE username = ?'
   ).get(username.trim()) as {
     id: number; username: string; password_hash: string
-    role: 'manager' | 'helper'
-    can_view: number; can_edit: number; can_delete: number; is_active: number
+    role: 'manager' | 'helper' | 'admin'
+    can_view: number; can_edit: number; can_delete: number
+    can_view_dashboard: number; can_view_warehouse: number; can_view_master: number
+    is_active: number
   } | undefined
 
   if (!user || !verifyPassword(password, user.password_hash)) {
@@ -69,6 +71,9 @@ router.post('/login', (req, res) => {
     can_view: user.can_view,
     can_edit: user.can_edit,
     can_delete: user.can_delete,
+    can_view_dashboard: user.can_view_dashboard,
+    can_view_warehouse: user.can_view_warehouse,
+    can_view_master: user.can_view_master,
   })
 
   return res.json({
@@ -80,6 +85,9 @@ router.post('/login', (req, res) => {
       can_view: user.can_view,
       can_edit: user.can_edit,
       can_delete: user.can_delete,
+      can_view_dashboard: user.can_view_dashboard,
+      can_view_warehouse: user.can_view_warehouse,
+      can_view_master: user.can_view_master,
     },
   })
 })
