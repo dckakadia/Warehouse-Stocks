@@ -322,13 +322,13 @@ router.get('/ledger/supplier/:id', (req, res) => {
 router.get('/inward', (_req, res) => {
   const batches = db.prepare(`
     SELECT
-      b.id, b.batch_number, b.import_date, b.status, b.notes, b.created_at,
+      b.id, b.batch_number, b.import_date, b.status, b.notes,
       b.supplier_id, s.supplier_name,
       it.id AS item_id, it.color_name, it.item_image
     FROM batches b
     JOIN items it ON b.item_id = it.id
     LEFT JOIN suppliers s ON b.supplier_id = s.id
-    ORDER BY b.created_at DESC
+    ORDER BY b.import_date DESC, b.id DESC
   `).all() as Record<string, unknown>[]
 
   const invRows = db.prepare(`

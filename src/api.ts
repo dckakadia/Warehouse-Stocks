@@ -389,7 +389,6 @@ export interface InwardBatch {
   item_id: number
   color_name: string
   item_image: string | null
-  created_at: string
   inventory: InwardInventoryLine[]
 }
 
