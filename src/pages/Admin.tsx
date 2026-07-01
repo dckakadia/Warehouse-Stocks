@@ -534,7 +534,12 @@ export default function AdminPage() {
                       {u.can_view_dashboard ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Dashboard</span> : null}
                       {u.can_view_warehouse ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Warehouse</span> : null}
                       {u.can_view_master    ? <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/30 text-teal-400 border border-teal-800/60 font-medium">Master</span>    : null}
-                      {!u.can_view_dashboard && !u.can_view_warehouse && !u.can_view_master && <span className="text-xs text-gray-600 italic">No pages</span>}
+                      {(u.role === 'manager' || u.role === 'admin') && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-rose-900/30 text-rose-400 border border-rose-800/60 font-medium">Report</span>
+                      )}
+                      {!u.can_view_dashboard && !u.can_view_warehouse && !u.can_view_master && u.role === 'helper' && (
+                        <span className="text-xs text-gray-600 italic">No pages</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3">
