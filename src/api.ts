@@ -128,14 +128,12 @@ export const deleteWarehouse  = (id: number) => request<{success:boolean}>(`/mas
 export interface Warehouse {
   id: number
   warehouse_name: string
-  location_city: string
   is_active: number
 }
 
 export interface StockSummaryLine {
   warehouse_id: number
   warehouse_name: string
-  location_city: string
   batch_id: number
   batch_number: string
   packing_size: string
@@ -184,7 +182,6 @@ export interface InventoryRow {
   batch_status: string
   warehouse_id: number
   warehouse_name: string
-  location_city: string
   packing_size: string
   quantity_in_stock: number
 }
@@ -203,7 +200,6 @@ export interface BatchRow {
   status: string
   warehouse_id: number
   warehouse_name: string
-  location_city: string
   packing_size: string
   quantity_in_stock: number
   inv_id: number
@@ -233,7 +229,6 @@ export interface DispatchOrder {
   import_date: string
   warehouse_id: number
   warehouse_name: string
-  location_city: string
   packing_size: string
   bags_dispatched: number
   status: 'Pending' | 'Picked' | 'Cancelled'
@@ -338,7 +333,6 @@ export interface CustomerOrderRow {
   status: 'Pending' | 'Picked' | 'Cancelled'
   created_at: string
   warehouse_name: string
-  location_city: string
 }
 
 export interface CustomerLedgerDetail {
@@ -392,7 +386,6 @@ export interface InwardInventoryLine {
   packing_size: string
   quantity_in_stock: number
   warehouse_name: string
-  location_city: string
 }
 
 export interface InwardBatch {

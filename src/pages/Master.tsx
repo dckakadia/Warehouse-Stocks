@@ -375,14 +375,13 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
       {tab === 'warehouses' && (
         <MasterSection<Warehouse>
           title="Warehouses" icon={<Ic.Building />} items={warehouses}
-          columns={['WAREHOUSE NAME', 'CITY', 'STATUS']}
-          emptyForm={{ warehouse_name: '', location_city: '', is_active: 1 }}
+          columns={['WAREHOUSE NAME', 'STATUS']}
+          emptyForm={{ warehouse_name: '', is_active: 1 }}
           form={whForm} setForm={setWhForm}
           canEdit={canEdit} canDelete={canDelete}
           loading={warehousesLoading} error={warehousesError} onRetry={loadWarehouses}
           renderRow={w => [
             <span className={`font-semibold px-2 py-0.5 rounded border text-xs ${whColor(w.id)}`}>{w.warehouse_name}</span>,
-            <span className="text-gray-400">{w.location_city || '—'}</span>,
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${w.is_active ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800/60' : 'bg-gray-700 text-gray-400 border-gray-600'}`}>
               {w.is_active ? 'Active' : 'Inactive'}
             </span>,
@@ -394,11 +393,6 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
                 <input autoFocus value={f.warehouse_name ?? ''} onChange={e => set({ ...f, warehouse_name: e.target.value })} required placeholder="e.g., Delta"
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
               </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">City</label>
-                <input value={f.location_city ?? ''} onChange={e => set({ ...f, location_city: e.target.value })} placeholder="e.g., Nagpur"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
-              </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={!!f.is_active} onChange={e => set({ ...f, is_active: e.target.checked ? 1 : 0 })}
                   className="w-4 h-4 rounded accent-blue-500" />
@@ -408,8 +402,8 @@ export default function MasterPage({ canEdit, canDelete }: Props) {
           )}
           onSave={async f => {
             try {
-              if (f.id) await api.updateWarehouse(f.id, { warehouse_name: f.warehouse_name!, location_city: f.location_city ?? '', is_active: f.is_active ?? 1 })
-              else await api.createWarehouse({ warehouse_name: f.warehouse_name!, location_city: f.location_city ?? '', is_active: f.is_active ?? 1 })
+              if (f.id) await api.updateWarehouse(f.id, { warehouse_name: f.warehouse_name!, is_active: f.is_active ?? 1 })
+              else await api.createWarehouse({ warehouse_name: f.warehouse_name!, is_active: f.is_active ?? 1 })
               toast(f.id ? 'Warehouse updated' : 'Warehouse created')
               setWhForm(null)
               loadWarehouses()

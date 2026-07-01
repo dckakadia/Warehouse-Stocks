@@ -162,7 +162,7 @@ router.get('/ledger/customer/:id', (req, res) => {
       d.id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
       it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
       b.batch_number,
-      w.warehouse_name, w.location_city
+      w.warehouse_name
     FROM dispatch_orders d
     JOIN batches b    ON d.batch_id     = b.id
     JOIN items it     ON b.item_id      = it.id
@@ -352,7 +352,7 @@ router.get('/inward', (_req, res) => {
   const invRows = db.prepare(`
     SELECT inv.id, inv.batch_id, inv.warehouse_id, inv.packing_size,
            inv.quantity_in_stock,
-           w.warehouse_name, w.location_city
+           w.warehouse_name
     FROM inventory inv
     JOIN warehouses w ON inv.warehouse_id = w.id
   `).all() as { batch_id: number; [k: string]: unknown }[]

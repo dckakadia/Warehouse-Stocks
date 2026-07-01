@@ -7,7 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBlock from '../components/ErrorBlock'
 import Skeleton from '../components/Skeleton'
 import Lightbox from '../components/Lightbox'
-import { todayISO } from '../utils'
+import { todayISO, printHtmlDocument } from '../utils'
 
 /* ── Status Badge ── */
 function StatusBadge({ status }: { status: string }) {
@@ -255,14 +255,10 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
     <span>Page 1</span>
   </div>
 </div>
-<script>window.onload = () => { window.print(); }</script>
 </body>
 </html>`
 
-      const w = window.open('', '_blank', 'width=1000,height=700')
-      if (!w) { toast('Popup blocked — allow popups for this site', 'err'); return }
-      w.document.write(html)
-      w.document.close()
+      printHtmlDocument(html)
     }
 
     return (
@@ -373,7 +369,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
                       <td className="px-4 py-3 text-xs font-mono text-gray-300">{o.batch_number}</td>
                       <td className="px-4 py-3 text-xs text-gray-300">{o.packing_size}</td>
                       <td className="px-4 py-3 text-sm font-bold text-white">{o.bags_dispatched}</td>
-                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name} · {o.location_city}</td>
+                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name}</td>
                       <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
                       {(canEdit || canDelete) && (
                         <td className="px-4 py-3">
@@ -520,6 +516,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
   const [editNotes, setEditNotes] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
   const { add: toast } = useToast()
 
   const loadList = useCallback(() => {
@@ -644,7 +641,9 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {b.item_image
-                            ? <img src={b.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                            ? <img src={b.item_image}
+                                className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                onClick={() => setLightbox({ src: b.item_image!, title: b.color_name })} />
                             : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
                           <span className="text-sm text-white font-medium">{b.color_name}</span>
                         </div>
@@ -723,6 +722,10 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
             onConfirm={handleDeleteBatch}
             onCancel={() => setDeleteBatchId(null)}
           />
+        )}
+
+        {lightbox && (
+          <Lightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
         )}
       </div>
     )
@@ -956,14 +959,10 @@ function TransferReport({ canEdit, canDelete }: RightsProps) {
     <span>Page 1</span>
   </div>
 </div>
-<script>window.onload = () => { window.print(); }</script>
 </body>
 </html>`
 
-    const w = window.open('', '_blank', 'width=1000,height=700')
-    if (!w) { toast('Popup blocked — allow popups for this site', 'err'); return }
-    w.document.write(html)
-    w.document.close()
+    printHtmlDocument(html)
   }
 
   return (
@@ -1139,7 +1138,7 @@ function DailyReport() {
   const [data, setData] = useState<DailyReportResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const { add: toast } = useToast()
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
 
   const load = async (from: string, to: string) => {
     setLoading(true)
@@ -1306,14 +1305,10 @@ function DailyReport() {
     <span>Page 1</span>
   </div>
 </div>
-<script>window.onload = () => { window.print(); }</script>
 </body>
 </html>`
 
-    const w = window.open('', '_blank', 'width=1000,height=700')
-    if (!w) { toast('Popup blocked — allow popups for this site', 'err'); return }
-    w.document.write(html)
-    w.document.close()
+    printHtmlDocument(html)
   }
 
   return (
@@ -1403,7 +1398,9 @@ function DailyReport() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             {b.item_image
-                              ? <img src={b.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                              ? <img src={b.item_image}
+                                  className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                  onClick={() => setLightbox({ src: b.item_image!, title: b.color_name })} />
                               : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
                             <span className="text-sm text-white font-medium">{b.color_name}</span>
                           </div>
@@ -1447,7 +1444,9 @@ function DailyReport() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             {o.item_image
-                              ? <img src={o.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                              ? <img src={o.item_image}
+                                  className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                  onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
                               : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
                             <span className="text-sm text-white font-medium">{o.color_name}</span>
                           </div>
@@ -1491,7 +1490,9 @@ function DailyReport() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             {t.item_image
-                              ? <img src={t.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                              ? <img src={t.item_image}
+                                  className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                  onClick={() => setLightbox({ src: t.item_image!, title: t.color_name })} />
                               : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
                             <span className="text-sm text-white font-medium">{t.color_name}</span>
                           </div>
@@ -1514,6 +1515,10 @@ function DailyReport() {
             )}
           </div>
         </>
+      )}
+
+      {lightbox && (
+        <Lightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
       )}
     </div>
   )

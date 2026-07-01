@@ -15,7 +15,6 @@ router.get('/', (_req, res) => {
       b.status         AS batch_status,
       w.id             AS warehouse_id,
       w.warehouse_name,
-      w.location_city,
       inv.packing_size,
       inv.quantity_in_stock
     FROM inventory inv
@@ -51,7 +50,6 @@ router.get('/summary', (_req, res) => {
       inv.packing_size,
       w.id             AS warehouse_id,
       w.warehouse_name,
-      w.location_city,
       b.id             AS batch_id,
       b.batch_number,
       b.notes
@@ -70,7 +68,6 @@ router.get('/summary', (_req, res) => {
     packing_size: string
     warehouse_id: number
     warehouse_name: string
-    location_city: string
     batch_id: number
     batch_number: string
     notes: string
@@ -84,7 +81,6 @@ router.get('/summary', (_req, res) => {
     lines: {
       warehouse_id: number
       warehouse_name: string
-      location_city: string
       batch_id: number
       batch_number: string
       packing_size: string
@@ -115,7 +111,6 @@ router.get('/summary', (_req, res) => {
     entry.lines.push({
       warehouse_id: r.warehouse_id,
       warehouse_name: r.warehouse_name,
-      location_city: r.location_city,
       batch_id: r.batch_id,
       batch_number: r.batch_number,
       packing_size: r.packing_size,
@@ -138,7 +133,7 @@ router.get('/batches', (req, res) => {
 
   const rows = db.prepare(`
     SELECT b.id, b.batch_number, b.import_date, b.status,
-           w.id AS warehouse_id, w.warehouse_name, w.location_city,
+           w.id AS warehouse_id, w.warehouse_name,
            inv.packing_size,
            inv.quantity_in_stock,
            inv.id AS inv_id

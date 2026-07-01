@@ -3,6 +3,7 @@ import * as api from '../api'
 import type { Customer, ColorRow, BatchRow, RecommendedBatch } from '../api'
 import Ic from '../icons'
 import { whColor } from '../utils'
+import Lightbox from './Lightbox'
 
 interface Props {
   customers: Customer[]
@@ -23,6 +24,7 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
   const [bags, setBags] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
 
   const filteredCustomers = useMemo(() =>
     customers.filter(c => c.customer_name.toLowerCase().includes(custSearch.toLowerCase()) || c.contact_number.includes(custSearch)),
@@ -130,7 +132,12 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
                     <button key={col.id} onClick={() => selectColor(col)}
                       className="w-full flex items-center gap-3 px-3 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-left transition-colors">
                       {col.item_image ? (
-                        <img src={col.item_image} alt={col.color_name} className="w-11 h-11 object-cover rounded-lg border border-gray-700 flex-shrink-0" />
+                        <button type="button"
+                          onClick={e => { e.stopPropagation(); setLightbox({ src: col.item_image!, title: col.color_name }) }}
+                          className="flex-shrink-0 rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <img src={col.item_image} alt={col.color_name}
+                            className="w-11 h-11 object-cover rounded-lg border border-gray-700 hover:border-blue-500 transition-colors" />
+                        </button>
                       ) : (
                         <div className="w-11 h-11 rounded-lg bg-gray-700 flex items-center justify-center flex-shrink-0 text-gray-500"><Ic.Image /></div>
                       )}
@@ -196,7 +203,7 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sm font-mono font-medium text-white">{b.batch_number}</span>
                                 <span className={`text-xs border px-1.5 py-0.5 rounded ${whColor(b.warehouse_id)}`}>
-                                  {b.warehouse_name} · {b.location_city}
+                                  {b.warehouse_name}
                                 </span>
                                 {recommended?.batch_number === b.batch_number && (
                                   <span className="text-xs bg-amber-700/40 text-amber-300 px-1.5 py-0.5 rounded font-medium">Recommended</span>
@@ -237,6 +244,10 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
           )}
         </div>
       </div>
+
+      {lightbox && (
+        <Lightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
+      )}
     </div>
   )
 }

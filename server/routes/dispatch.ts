@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
       c.customer_name, c.contact_number,
       b.batch_number, b.import_date,
       it.color_name, it.hsn_code, COALESCE(b.batch_image, it.item_image) AS item_image,
-      w.warehouse_name, w.location_city
+      w.warehouse_name
     FROM dispatch_orders d
     JOIN customers c  ON d.customer_id  = c.id
     JOIN batches b    ON d.batch_id     = b.id
@@ -67,7 +67,7 @@ router.post('/', requireEdit, (req, res) => {
     const order = db.prepare(`
       SELECT d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
              c.customer_name, b.batch_number, it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
-             w.warehouse_name, w.location_city
+             w.warehouse_name
       FROM dispatch_orders d
       JOIN customers c  ON d.customer_id  = c.id
       JOIN batches b    ON d.batch_id     = b.id

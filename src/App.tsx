@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import * as api from './api'
 import type { Customer, ColorRow } from './api'
@@ -8,6 +8,7 @@ import { useAuth } from './hooks/useAuth'
 import { useWSSync } from './hooks/useWSSync'
 import { useToast } from './hooks/useToast'
 import { useAppUpdate } from './hooks/useAppUpdate'
+import { useAppVersion } from './hooks/useAppVersion'
 import { useSessionExpiry } from './hooks/useSessionExpiry'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import Login from './components/Login'
@@ -35,6 +36,7 @@ export default function App() {
   const { user, token, login, logout, refreshSession, logoutReason } = useAuth()
   const { showWarning: showSessionWarning, dismiss: dismissSessionWarning } = useSessionExpiry(token)
   const updateInfo = useAppUpdate()
+  const version = useAppVersion()
   const isOnline = useOnlineStatus()
   const [view, setView] = useState<View>('dashboard')
   const [showDispatch, setShowDispatch] = useState(false)
@@ -50,12 +52,17 @@ export default function App() {
   // for the same mutation will also arrive via WS, this just avoids waiting on that round-trip.
   const refresh = useCallback(() => bumpRefresh('dispatch'), [bumpRefresh])
   const { toasts } = useToast()
+  const hasLoadedAppDataRef = useRef(false)
 
   useWSSync(bumpRefresh)
 
   useEffect(() => {
-    if (!user) return
-    if (refreshSig > 0 && !['customers', 'items', 'all'].includes(refreshEntity)) return
+    if (!user) { hasLoadedAppDataRef.current = false; return }
+    // Gate on this tab's own "have I loaded since logging in" flag, not the shared refreshSig
+    // counter — refreshSig persists across a logout/re-login, so a fresh login (e.g. after the
+    // session-expiry re-auth flow) must always refetch regardless of the last broadcast's entity.
+    if (hasLoadedAppDataRef.current && !['customers', 'items', 'all'].includes(refreshEntity)) return
+    hasLoadedAppDataRef.current = true
     api.getCustomers().then(setCustomers).catch(() => {})
     api.getColors().then(setColors).catch(() => {})
   }, [refreshSig, refreshEntity, user])
@@ -151,6 +158,7 @@ export default function App() {
               </span>
             )}
             <span className="text-xs text-gray-400 hidden sm:block">{user.username}</span>
+            <span className="text-xs text-gray-600 hidden md:block">v{version}</span>
             <button onClick={() => logout()} title="Sign out"
               className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
               <Ic.LogOut />

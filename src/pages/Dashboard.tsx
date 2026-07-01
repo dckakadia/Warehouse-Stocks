@@ -48,7 +48,11 @@ export default function Dashboard({ refreshSig, refreshEntity, onCreateDispatch,
   }, [])
 
   useEffect(() => {
-    if (refreshSig > 0 && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
+    // Gate on this component's own "have I loaded yet" flag, not the shared refreshSig counter —
+    // refreshSig persists across a logout/re-login within the same tab, so a freshly-mounted
+    // Dashboard (e.g. after the session-expiry re-auth flow) must always run its first load
+    // regardless of what the last broadcast's entity happened to be.
+    if (hasLoadedRef.current && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
     load()
   }, [load, refreshSig, refreshEntity])
 
@@ -113,7 +117,7 @@ export default function Dashboard({ refreshSig, refreshEntity, onCreateDispatch,
         {warehouses.map(w => (
           <button key={w.id} onClick={() => setFilterWid(filterWid === w.id ? 'all' : w.id)}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${filterWid === w.id ? whColor(w.id) : whColor(w.id) + ' opacity-60 hover:opacity-90'}`}>
-            {w.warehouse_name} · {w.location_city}
+            {w.warehouse_name}
           </button>
         ))}
       </div>
@@ -212,7 +216,7 @@ export default function Dashboard({ refreshSig, refreshEntity, onCreateDispatch,
                         <tr key={i} className="hover:bg-gray-800/30 transition-colors">
                           <td className="px-4 py-2.5">
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${whColor(line.warehouse_id)}`}>
-                              {line.warehouse_name} · {line.location_city}
+                              {line.warehouse_name}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">

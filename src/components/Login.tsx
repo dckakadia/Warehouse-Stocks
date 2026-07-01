@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import Ic from '../icons'
+import { useAppVersion } from '../hooks/useAppVersion'
 
 interface Props {
   onLogin: (username: string, password: string) => Promise<void>
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export default function Login({ onLogin, reason }: Props) {
+  const version = useAppVersion()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -97,6 +99,8 @@ export default function Login({ onLogin, reason }: Props) {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
+
+        <p className="text-center text-xs text-gray-600 mt-4">v{version}</p>
       </div>
     </div>
   )

@@ -7,6 +7,7 @@ import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBlock from '../components/ErrorBlock'
 import Skeleton from '../components/Skeleton'
+import Lightbox from '../components/Lightbox'
 
 interface Props {
   refreshSig: number
@@ -29,6 +30,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const [pickingSearch, setPickingSearch] = useState('')
   const [confirmPickId, setConfirmPickId] = useState<number | null>(null)
   const { toasts, add: toast } = useToast()
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
 
   // Inward form
   const [iColor, setIColor] = useState('')
@@ -122,7 +124,11 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   }, [])
 
   useEffect(() => {
-    if (refreshSig > 0 && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
+    // Gate on this component's own "have I loaded yet" flag, not the shared refreshSig counter —
+    // refreshSig persists across a logout/re-login within the same tab, so a freshly-mounted
+    // Warehouse page (e.g. after the session-expiry re-auth flow) must always run its first load
+    // regardless of what the last broadcast's entity happened to be.
+    if (hasLoadedBootstrapRef.current && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
     loadBootstrap()
   }, [loadBootstrap, refreshSig, refreshEntity])
 
@@ -382,14 +388,16 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
               <div key={o.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
                 <div className="flex items-start gap-3">
                   {o.item_image && (
-                    <img src={o.item_image} alt={o.color_name} className="w-14 h-14 object-cover rounded-lg border border-gray-700 flex-shrink-0" />
+                    <img src={o.item_image} alt={o.color_name}
+                      className="w-14 h-14 object-cover rounded-lg border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                      onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-1.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-gray-500 font-mono">DIS-{o.id}</span>
                         <span className={`text-xs border px-1.5 py-0.5 rounded ${whColor(o.warehouse_id)}`}>
-                          {o.warehouse_name} · {o.location_city}
+                          {o.warehouse_name}
                         </span>
                       </div>
                       <span className="text-xs font-semibold px-2 py-0.5 rounded border flex-shrink-0 bg-gray-700/60 text-gray-300 border-gray-600">
@@ -440,7 +448,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
             <select value={iWarehouseId} onChange={e => setIWarehouseId(e.target.value ? Number(e.target.value) : '')} required
               className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 appearance-none">
               <option value="">Select warehouse</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name} — {w.location_city}</option>)}
+              {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
             </select>
           </div>
 
@@ -476,7 +484,9 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
             <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Batch Photo</label>
             {iImage ? (
               <div className="flex items-center gap-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
-                <img src={iImage} alt="Preview" className="w-20 h-20 object-cover rounded-lg border border-gray-600 flex-shrink-0" />
+                <img src={iImage} alt="Preview"
+                  className="w-20 h-20 object-cover rounded-lg border border-gray-600 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                  onClick={() => setLightbox({ src: iImage, title: iColor || 'Batch photo' })} />
                 <div className="flex flex-col gap-2 min-w-0">
                   {iImageIsDefault && (
                     <p className="text-xs text-amber-400">Default photo for this color — tap Gallery/Camera to set this batch's own photo</p>
@@ -554,7 +564,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
             <select value={tFromWid} onChange={e => { setTFromWid(e.target.value ? Number(e.target.value) : ''); setTColor(''); setTBatches([]); setTInvId(null) }} required
               className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 appearance-none">
               <option value="">Select source warehouse</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name} — {w.location_city}</option>)}
+              {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
             </select>
           </div>
 
@@ -596,7 +606,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
               className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 appearance-none">
               <option value="">Select destination warehouse</option>
               {warehouses.filter(w => w.id !== (tFromWid as number)).map(w => (
-                <option key={w.id} value={w.id}>{w.warehouse_name} — {w.location_city}</option>
+                <option key={w.id} value={w.id}>{w.warehouse_name}</option>
               ))}
             </select>
           </div>
@@ -661,7 +671,9 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
                   {/* Batch header row */}
                   <div className="flex items-center gap-3 px-4 py-3">
                     {b.item_image
-                      ? <img src={b.item_image} className="w-10 h-10 rounded-lg object-cover border border-gray-700 flex-shrink-0" />
+                      ? <img src={b.item_image}
+                          className="w-10 h-10 rounded-lg object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                          onClick={() => setLightbox({ src: b.item_image!, title: b.color_name })} />
                       : <div className="w-10 h-10 rounded-lg bg-gray-700 flex-shrink-0" />}
                     <button className="flex-1 min-w-0 text-left" onClick={() => setExpandedBatchId(isExpanded ? null : b.id)}>
                       <p className="text-sm font-semibold text-white truncate">{b.color_name}</p>
@@ -692,7 +704,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
                         : b.inventory.map(line => (
                           <div key={line.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30">
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-white">{line.warehouse_name} · {line.location_city}</p>
+                              <p className="text-xs font-medium text-white">{line.warehouse_name}</p>
                               <p className="text-xs text-gray-400">{line.packing_size} · {line.quantity_in_stock} bags</p>
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
@@ -756,7 +768,9 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
                     <label className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Batch Photo</label>
                     {editBatchForm.batch_image ? (
                       <div className="flex items-center gap-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
-                        <img src={editBatchForm.batch_image} alt="Preview" className="w-16 h-16 object-cover rounded-lg border border-gray-600 flex-shrink-0" />
+                        <img src={editBatchForm.batch_image} alt="Preview"
+                          className="w-16 h-16 object-cover rounded-lg border border-gray-600 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                          onClick={() => setLightbox({ src: editBatchForm.batch_image!, title: editBatchForm.color_name || 'Batch photo' })} />
                         <div className="flex flex-col gap-2 min-w-0">
                           <button type="button" onClick={() => editGalleryRef.current?.click()}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
@@ -857,6 +871,10 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
           onConfirm={() => { confirmPick(confirmPickId); setConfirmPickId(null) }}
           onCancel={() => setConfirmPickId(null)}
         />
+      )}
+
+      {lightbox && (
+        <Lightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
       )}
     </main>
   )

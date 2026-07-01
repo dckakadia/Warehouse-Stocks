@@ -153,20 +153,22 @@ router.get('/warehouses', (_req, res) => {
 })
 
 router.post('/warehouses', requireEdit, (req, res) => {
-  const { warehouse_name, location_city = '', is_active = 1 } = req.body
+  const { warehouse_name, is_active = 1 } = req.body
   if (!warehouse_name?.trim()) return res.status(400).json({ error: 'warehouse_name required' })
   try {
-    const r = db.prepare('INSERT INTO warehouses (warehouse_name, location_city, is_active) VALUES (?, ?, ?)').run(warehouse_name.trim(), location_city.trim(), is_active)
-    res.status(201).json({ id: r.lastInsertRowid, warehouse_name: warehouse_name.trim(), location_city: location_city.trim(), is_active })
+    const r = db.prepare('INSERT INTO warehouses (warehouse_name, is_active) VALUES (?, ?)').run(warehouse_name.trim(), is_active)
+    res.status(201).json({ id: r.lastInsertRowid, warehouse_name: warehouse_name.trim(), is_active })
   } catch { res.status(409).json({ error: 'Warehouse name already exists' }) }
 })
 
+// location_city is intentionally left out of this UPDATE — the column stays in the schema for
+// existing rows, but is no longer written to, so old values are preserved rather than blanked.
 router.put('/warehouses/:id', requireEdit, (req, res) => {
-  const { warehouse_name, location_city, is_active } = req.body
+  const { warehouse_name, is_active } = req.body
   if (!warehouse_name?.trim()) return res.status(400).json({ error: 'warehouse_name required' })
   try {
-    db.prepare('UPDATE warehouses SET warehouse_name = ?, location_city = ?, is_active = ? WHERE id = ?')
-      .run(warehouse_name.trim(), location_city?.trim() ?? '', is_active ?? 1, req.params.id)
+    db.prepare('UPDATE warehouses SET warehouse_name = ?, is_active = ? WHERE id = ?')
+      .run(warehouse_name.trim(), is_active ?? 1, req.params.id)
     res.json({ success: true })
   } catch { res.status(409).json({ error: 'Warehouse name already exists' }) }
 })
