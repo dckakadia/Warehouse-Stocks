@@ -315,6 +315,114 @@ router.get('/ledger/supplier/:id', (req, res) => {
 })
 
 /* ══════════════════════════════════════════════
+   STOCK INWARD — EDIT / DELETE (admin only)
+══════════════════════════════════════════════ */
+
+/* List all batches with their inventory lines */
+router.get('/inward', (_req, res) => {
+  const batches = db.prepare(`
+    SELECT
+      b.id, b.batch_number, b.import_date, b.status, b.notes, b.created_at,
+      b.supplier_id, s.supplier_name,
+      it.id AS item_id, it.color_name, it.item_image
+    FROM batches b
+    JOIN items it ON b.item_id = it.id
+    LEFT JOIN suppliers s ON b.supplier_id = s.id
+    ORDER BY b.created_at DESC
+  `).all() as Record<string, unknown>[]
+
+  const invRows = db.prepare(`
+    SELECT inv.id, inv.batch_id, inv.warehouse_id, inv.packing_size,
+           inv.quantity_in_stock, inv.godown_rack_location,
+           w.warehouse_name, w.location_city
+    FROM inventory inv
+    JOIN warehouses w ON inv.warehouse_id = w.id
+  `).all() as { batch_id: number; [k: string]: unknown }[]
+
+  const invByBatch: Record<number, unknown[]> = {}
+  for (const r of invRows) {
+    if (!invByBatch[r.batch_id]) invByBatch[r.batch_id] = []
+    invByBatch[r.batch_id].push(r)
+  }
+
+  res.json(batches.map(b => ({ ...b, inventory: invByBatch[b.id as number] ?? [] })))
+})
+
+/* Edit batch metadata */
+router.put('/inward/batches/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const { batch_number, import_date, notes, supplier_id } = req.body as {
+    batch_number: string; import_date: string; notes: string; supplier_id: number | null
+  }
+  if (!batch_number?.trim() || !import_date?.trim()) {
+    return res.status(400).json({ error: 'batch_number and import_date are required' })
+  }
+  if (!db.prepare('SELECT id FROM batches WHERE id = ?').get(id)) {
+    return res.status(404).json({ error: 'Batch not found' })
+  }
+  try {
+    db.prepare('UPDATE batches SET batch_number=?, import_date=?, notes=?, supplier_id=? WHERE id=?')
+      .run(batch_number.trim(), import_date.trim(), notes ?? '', supplier_id ? Number(supplier_id) : null, id)
+    return res.json({ success: true })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (msg.includes('UNIQUE')) return res.status(409).json({ error: 'Batch number already exists for this item' })
+    return res.status(500).json({ error: msg })
+  }
+})
+
+/* Edit an inventory line (quantity + godown location) */
+router.put('/inward/inventory/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const { quantity_in_stock, godown_rack_location } = req.body as {
+    quantity_in_stock: number; godown_rack_location: string
+  }
+  const qty = Number(quantity_in_stock)
+  if (!Number.isInteger(qty) || qty < 0) {
+    return res.status(400).json({ error: 'quantity_in_stock must be a non-negative integer' })
+  }
+  if (!db.prepare('SELECT id FROM inventory WHERE id = ?').get(id)) {
+    return res.status(404).json({ error: 'Inventory line not found' })
+  }
+  db.prepare('UPDATE inventory SET quantity_in_stock=?, godown_rack_location=? WHERE id=?')
+    .run(qty, godown_rack_location ?? '', id)
+  return res.json({ success: true })
+})
+
+/* Delete an entire batch (+ all inventory lines) */
+router.delete('/inward/batches/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const { cnt } = db.prepare(
+    "SELECT COUNT(*) AS cnt FROM dispatch_orders WHERE batch_id=? AND status='Pending'"
+  ).get(id) as { cnt: number }
+  if (cnt > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${cnt} pending dispatch order(s) use this batch` })
+  }
+  db.transaction(() => {
+    db.prepare('DELETE FROM inventory WHERE batch_id=?').run(id)
+    db.prepare('DELETE FROM batches WHERE id=?').run(id)
+  })()
+  return res.json({ success: true })
+})
+
+/* Delete a single inventory line */
+router.delete('/inward/inventory/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const inv = db.prepare('SELECT batch_id, warehouse_id, packing_size FROM inventory WHERE id=?').get(id) as {
+    batch_id: number; warehouse_id: number; packing_size: string
+  } | undefined
+  if (!inv) return res.status(404).json({ error: 'Inventory line not found' })
+  const { cnt } = db.prepare(
+    "SELECT COUNT(*) AS cnt FROM dispatch_orders WHERE batch_id=? AND warehouse_id=? AND packing_size=? AND status='Pending'"
+  ).get(inv.batch_id, inv.warehouse_id, inv.packing_size) as { cnt: number }
+  if (cnt > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${cnt} pending order(s) use this inventory line` })
+  }
+  db.prepare('DELETE FROM inventory WHERE id=?').run(id)
+  return res.json({ success: true })
+})
+
+/* ══════════════════════════════════════════════
    GOOGLE DRIVE BACKUP
 ══════════════════════════════════════════════ */
 

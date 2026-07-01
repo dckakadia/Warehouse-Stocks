@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as api from '../api'
-import type { DispatchOrder, ColorRow, Warehouse as WarehouseType, BatchRow } from '../api'
+import type { DispatchOrder, ColorRow, Warehouse as WarehouseType, BatchRow, InwardBatch, InwardInventoryLine } from '../api'
 import Ic from '../icons'
 import { todayISO, compressImage, whColor } from '../utils'
 import { useToast } from '../hooks/useToast'
@@ -9,10 +9,11 @@ import ConfirmDialog from '../components/ConfirmDialog'
 interface Props {
   refreshSig: number
   canEdit: boolean
+  isManager: boolean
 }
 
-export default function WarehouseApp({ refreshSig, canEdit }: Props) {
-  const [tab, setTab] = useState<'picking' | 'inward' | 'transfer'>('picking')
+export default function WarehouseApp({ refreshSig, canEdit, isManager }: Props) {
+  const [tab, setTab] = useState<'picking' | 'inward' | 'transfer' | 'records'>('picking')
   const [orders, setOrders] = useState<DispatchOrder[]>([])
   const [colors, setColors] = useState<ColorRow[]>([])
   const [warehouses, setWarehouses] = useState<WarehouseType[]>([])
@@ -45,10 +46,30 @@ export default function WarehouseApp({ refreshSig, canEdit }: Props) {
   const [tBags, setTBags] = useState('')
   const [tLoading, setTLoading] = useState(false)
 
+  // Records tab
+  const [inwardBatches, setInwardBatches] = useState<InwardBatch[]>([])
+  const [recordsSearch, setRecordsSearch] = useState('')
+  const [expandedBatchId, setExpandedBatchId] = useState<number | null>(null)
+  const [editBatch, setEditBatch] = useState<InwardBatch | null>(null)
+  const [editBatchForm, setEditBatchForm] = useState({ batch_number: '', import_date: '', notes: '', supplier_id: '' })
+  const [editInvLine, setEditInvLine] = useState<InwardInventoryLine | null>(null)
+  const [editInvForm, setEditInvForm] = useState({ quantity_in_stock: '', godown_rack_location: '' })
+  const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
+  const [deleteInvLineId, setDeleteInvLineId] = useState<number | null>(null)
+  const [recordsSaving, setRecordsSaving] = useState(false)
+  const [recordsLoading, setRecordsLoading] = useState(false)
+
   const loadOrders = useCallback(async () => {
     const rows = await api.getDispatchOrders('Pending')
     setOrders(rows)
     setLoadingOrders(false)
+  }, [])
+
+  const loadInwardBatches = useCallback(async () => {
+    setRecordsLoading(true)
+    const rows = await api.getInwardBatches()
+    setInwardBatches(rows)
+    setRecordsLoading(false)
   }, [])
 
   useEffect(() => {
@@ -58,6 +79,10 @@ export default function WarehouseApp({ refreshSig, canEdit }: Props) {
     api.getItems().then(setAllItems)
     api.getSuppliers().then(setAllSuppliers)
   }, [loadOrders, refreshSig])
+
+  useEffect(() => {
+    if (tab === 'records' && isManager) loadInwardBatches()
+  }, [tab, isManager, loadInwardBatches])
 
   const onColorChange = (colorName: string) => {
     setIColor(colorName)
@@ -90,6 +115,95 @@ export default function WarehouseApp({ refreshSig, canEdit }: Props) {
       toast(err instanceof Error ? err.message : 'Error', 'err')
     }
   }
+
+  const openEditBatch = (b: InwardBatch) => {
+    setEditBatch(b)
+    setEditBatchForm({
+      batch_number: b.batch_number,
+      import_date: b.import_date,
+      notes: b.notes ?? '',
+      supplier_id: b.supplier_id != null ? String(b.supplier_id) : '',
+    })
+  }
+
+  const openEditInvLine = (line: InwardInventoryLine) => {
+    setEditInvLine(line)
+    setEditInvForm({
+      quantity_in_stock: String(line.quantity_in_stock),
+      godown_rack_location: line.godown_rack_location ?? '',
+    })
+  }
+
+  const handleSaveBatch = async () => {
+    if (!editBatch) return
+    setRecordsSaving(true)
+    try {
+      await api.updateInwardBatch(editBatch.id, {
+        batch_number: editBatchForm.batch_number,
+        import_date: editBatchForm.import_date,
+        notes: editBatchForm.notes,
+        supplier_id: editBatchForm.supplier_id ? Number(editBatchForm.supplier_id) : null,
+      })
+      toast('Batch updated ✓', 'ok')
+      setEditBatch(null)
+      await loadInwardBatches()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'err')
+    }
+    setRecordsSaving(false)
+  }
+
+  const handleSaveInvLine = async () => {
+    if (!editInvLine) return
+    setRecordsSaving(true)
+    try {
+      await api.updateInwardInventory(editInvLine.id, {
+        quantity_in_stock: Number(editInvForm.quantity_in_stock),
+        godown_rack_location: editInvForm.godown_rack_location,
+      })
+      toast('Inventory updated ✓', 'ok')
+      setEditInvLine(null)
+      await loadInwardBatches()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'err')
+    }
+    setRecordsSaving(false)
+  }
+
+  const handleDeleteBatch = async () => {
+    if (deleteBatchId == null) return
+    try {
+      await api.deleteInwardBatch(deleteBatchId)
+      toast('Batch deleted', 'ok')
+      setDeleteBatchId(null)
+      setExpandedBatchId(null)
+      await loadInwardBatches()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'err')
+    }
+  }
+
+  const handleDeleteInvLine = async () => {
+    if (deleteInvLineId == null) return
+    try {
+      await api.deleteInwardInventoryLine(deleteInvLineId)
+      toast('Inventory line deleted', 'ok')
+      setDeleteInvLineId(null)
+      await loadInwardBatches()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'err')
+    }
+  }
+
+  const filteredBatches = useMemo(() => {
+    if (!recordsSearch.trim()) return inwardBatches
+    const q = recordsSearch.toLowerCase()
+    return inwardBatches.filter(b =>
+      b.color_name.toLowerCase().includes(q) ||
+      b.batch_number.toLowerCase().includes(q) ||
+      (b.supplier_name ?? '').toLowerCase().includes(q)
+    )
+  }, [inwardBatches, recordsSearch])
 
   const submitInward = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -154,15 +268,15 @@ export default function WarehouseApp({ refreshSig, canEdit }: Props) {
 
   return (
     <main className="max-w-xl mx-auto px-4 py-6 w-full">
-      <div className="grid grid-cols-3 gap-2 mb-6">
+      <div className={`grid gap-2 mb-6 ${isManager ? 'grid-cols-4' : canEdit ? 'grid-cols-3' : 'grid-cols-1'}`}>
         <button onClick={() => setTab('picking')}
           className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-xs font-medium transition-colors ${tab === 'picking' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
-          <Ic.Clipboard /><span>Picking List</span>
+          <Ic.Clipboard /><span>Picking</span>
         </button>
         {canEdit && (
           <button onClick={() => setTab('inward')}
             className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-xs font-medium transition-colors ${tab === 'inward' ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
-            <Ic.Plus /><span>Stock Inward</span>
+            <Ic.Plus /><span>Inward</span>
           </button>
         )}
         {canEdit && (
@@ -171,7 +285,12 @@ export default function WarehouseApp({ refreshSig, canEdit }: Props) {
             <Ic.Transfer /><span>Transfer</span>
           </button>
         )}
-        {!canEdit && <div className="col-span-2" />}
+        {isManager && (
+          <button onClick={() => setTab('records')}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-xs font-medium transition-colors ${tab === 'records' ? 'bg-rose-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
+            <Ic.Database /><span>Records</span>
+          </button>
+        )}
       </div>
 
       {/* ── Picking List ── */}
@@ -429,6 +548,180 @@ export default function WarehouseApp({ refreshSig, canEdit }: Props) {
             <Ic.Transfer /> {tLoading ? 'Transferring…' : 'Transfer Stock'}
           </button>
         </form>
+      )}
+
+      {/* ── Stock Records ── */}
+      {tab === 'records' && isManager && (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-white">Stock Inward Records</h2>
+            <button onClick={loadInwardBatches} className="p-1.5 text-gray-500 hover:text-gray-200 transition-colors"><Ic.Refresh /></button>
+          </div>
+          <div className="relative mb-4">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"><Ic.Search /></span>
+            <input type="text" value={recordsSearch} onChange={e => setRecordsSearch(e.target.value)}
+              placeholder="Search by item, batch, supplier…"
+              className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+          </div>
+          {recordsLoading && <p className="text-center text-gray-500 py-10 text-sm">Loading…</p>}
+          {!recordsLoading && filteredBatches.length === 0 && (
+            <p className="text-center text-gray-500 py-10 text-sm">No inward records found</p>
+          )}
+          <div className="space-y-2">
+            {filteredBatches.map(b => {
+              const isExpanded = expandedBatchId === b.id
+              const totalBags = b.inventory.reduce((s, l) => s + l.quantity_in_stock, 0)
+              return (
+                <div key={b.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+                  {/* Batch header row */}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    {b.item_image
+                      ? <img src={b.item_image} className="w-10 h-10 rounded-lg object-cover border border-gray-700 flex-shrink-0" />
+                      : <div className="w-10 h-10 rounded-lg bg-gray-700 flex-shrink-0" />}
+                    <button className="flex-1 min-w-0 text-left" onClick={() => setExpandedBatchId(isExpanded ? null : b.id)}>
+                      <p className="text-sm font-semibold text-white truncate">{b.color_name}</p>
+                      <p className="text-xs text-gray-400 font-mono">{b.batch_number} · {b.import_date}</p>
+                      {b.supplier_name && <p className="text-xs text-gray-500">{b.supplier_name}</p>}
+                    </button>
+                    <div className="text-right flex-shrink-0 mr-2">
+                      <p className="text-sm font-bold text-white">{totalBags.toLocaleString()} <span className="text-xs font-normal text-gray-500">bags</span></p>
+                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${b.status === 'Active' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800/60' : 'bg-gray-700 text-gray-400 border-gray-600'}`}>{b.status}</span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => openEditBatch(b)} title="Edit batch"
+                        className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors">
+                        <Ic.Pencil />
+                      </button>
+                      <button onClick={() => setDeleteBatchId(b.id)} title="Delete batch"
+                        className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors">
+                        <Ic.Trash />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Inventory lines (expanded) */}
+                  {isExpanded && (
+                    <div className="border-t border-gray-800">
+                      {b.inventory.length === 0
+                        ? <p className="px-4 py-3 text-xs text-gray-500 italic">No inventory lines</p>
+                        : b.inventory.map(line => (
+                          <div key={line.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-white">{line.warehouse_name} · {line.location_city}</p>
+                              <p className="text-xs text-gray-400">{line.packing_size} · {line.quantity_in_stock} bags
+                                {line.godown_rack_location ? <span className="text-gray-500"> · {line.godown_rack_location}</span> : null}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button onClick={() => openEditInvLine(line)} title="Edit inventory line"
+                                className="p-1.5 text-gray-500 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors">
+                                <Ic.Pencil />
+                              </button>
+                              <button onClick={() => setDeleteInvLineId(line.id)} title="Delete inventory line"
+                                className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors">
+                                <Ic.Trash />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Edit Batch Modal */}
+          {editBatch && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+              <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+                <p className="text-sm font-semibold text-white mb-4">Edit Batch — <span className="text-blue-400">{editBatch.color_name}</span></p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Batch Number</label>
+                    <input value={editBatchForm.batch_number} onChange={e => setEditBatchForm(f => ({ ...f, batch_number: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Import Date</label>
+                    <input type="date" value={editBatchForm.import_date} onChange={e => setEditBatchForm(f => ({ ...f, import_date: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Supplier</label>
+                    <select value={editBatchForm.supplier_id} onChange={e => setEditBatchForm(f => ({ ...f, supplier_id: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 appearance-none">
+                      <option value="">No supplier</option>
+                      {allSuppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Notes</label>
+                    <textarea value={editBatchForm.notes} onChange={e => setEditBatchForm(f => ({ ...f, notes: e.target.value }))}
+                      rows={2} className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 resize-none" />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-5">
+                  <button onClick={() => setEditBatch(null)}
+                    className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+                  <button onClick={handleSaveBatch} disabled={recordsSaving || !editBatchForm.batch_number.trim()}
+                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
+                    {recordsSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Inventory Line Modal */}
+          {editInvLine && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+              <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+                <p className="text-sm font-semibold text-white mb-1">Edit Inventory Line</p>
+                <p className="text-xs text-gray-400 mb-4">{editInvLine.warehouse_name} · {editInvLine.packing_size}</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Quantity (bags)</label>
+                    <input type="number" min="0" value={editInvForm.quantity_in_stock}
+                      onChange={e => setEditInvForm(f => ({ ...f, quantity_in_stock: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Godown / Rack Location</label>
+                    <input value={editInvForm.godown_rack_location}
+                      onChange={e => setEditInvForm(f => ({ ...f, godown_rack_location: e.target.value }))}
+                      placeholder="e.g. A-1, Rack 3"
+                      className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-5">
+                  <button onClick={() => setEditInvLine(null)}
+                    className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+                  <button onClick={handleSaveInvLine} disabled={recordsSaving || editInvForm.quantity_in_stock === ''}
+                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
+                    {recordsSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {deleteBatchId !== null && (
+            <ConfirmDialog
+              message="Delete this entire inward batch and all its inventory lines? This cannot be undone."
+              onConfirm={handleDeleteBatch}
+              onCancel={() => setDeleteBatchId(null)}
+            />
+          )}
+          {deleteInvLineId !== null && (
+            <ConfirmDialog
+              message="Delete this inventory line? The bags will be removed from stock."
+              onConfirm={handleDeleteInvLine}
+              onCancel={() => setDeleteInvLineId(null)}
+            />
+          )}
+        </>
       )}
 
       {/* Toasts */}

@@ -366,6 +366,43 @@ export const updateLedgerOrder      = (id: number, body: { status?: string; bags
 export const deleteLedgerOrder      = (id: number) =>
   request<{ success: boolean }>(`/admin/ledger/orders/${id}`, { method: 'DELETE' })
 
+/* ── Stock Inward records (admin edit/delete) ── */
+export interface InwardInventoryLine {
+  id: number
+  batch_id: number
+  warehouse_id: number
+  packing_size: string
+  quantity_in_stock: number
+  godown_rack_location: string
+  warehouse_name: string
+  location_city: string
+}
+
+export interface InwardBatch {
+  id: number
+  batch_number: string
+  import_date: string
+  status: string
+  notes: string
+  supplier_id: number | null
+  supplier_name: string | null
+  item_id: number
+  color_name: string
+  item_image: string | null
+  created_at: string
+  inventory: InwardInventoryLine[]
+}
+
+export const getInwardBatches = () => request<InwardBatch[]>('/admin/inward')
+export const updateInwardBatch = (id: number, body: { batch_number: string; import_date: string; notes: string; supplier_id: number | null }) =>
+  request<{ success: boolean }>(`/admin/inward/batches/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const updateInwardInventory = (id: number, body: { quantity_in_stock: number; godown_rack_location: string }) =>
+  request<{ success: boolean }>(`/admin/inward/inventory/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteInwardBatch = (id: number) =>
+  request<{ success: boolean }>(`/admin/inward/batches/${id}`, { method: 'DELETE' })
+export const deleteInwardInventoryLine = (id: number) =>
+  request<{ success: boolean }>(`/admin/inward/inventory/${id}`, { method: 'DELETE' })
+
 export const getAdminUsers   = () => request<AppUser[]>('/admin/users')
 export const createAdminUser = (b: CreateUserBody) =>
   request<AppUser>('/admin/users', { method: 'POST', body: JSON.stringify(b) })
