@@ -7,12 +7,11 @@ import { whColor, parseKgPerBag } from '../utils'
 
 interface Props {
   refreshSig: number
-  onAddCustomer: () => void
   onCreateDispatch: () => void
   canEdit: boolean
 }
 
-export default function Dashboard({ refreshSig, onAddCustomer, onCreateDispatch, canEdit }: Props) {
+export default function Dashboard({ refreshSig, onCreateDispatch, canEdit }: Props) {
   const [summary, setSummary] = useState<StockSummary[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [search, setSearch] = useState('')
@@ -75,12 +74,6 @@ export default function Dashboard({ refreshSig, onAddCustomer, onCreateDispatch,
             className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors" />
         </div>
         <div className="ml-auto flex gap-2 flex-wrap">
-          {canEdit && (
-            <button onClick={onAddCustomer}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 rounded-lg text-sm font-medium transition-colors">
-              <Ic.User /> Add Customer
-            </button>
-          )}
           {canEdit && (
             <button onClick={onCreateDispatch}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">

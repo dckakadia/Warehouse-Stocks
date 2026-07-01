@@ -10,7 +10,6 @@ import { useToast } from './hooks/useToast'
 import { useAppUpdate } from './hooks/useAppUpdate'
 import Login from './components/Login'
 import UpdateBanner from './components/UpdateBanner'
-import AddCustomerModal from './components/AddCustomerModal'
 import CreateDispatchModal from './components/CreateDispatchModal'
 import Dashboard from './pages/Dashboard'
 import WarehouseApp from './pages/Warehouse'
@@ -24,13 +23,12 @@ export default function App() {
   const { user, login, logout } = useAuth()
   const updateInfo = useAppUpdate()
   const [view, setView] = useState<View>('dashboard')
-  const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [showDispatch, setShowDispatch] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [colors, setColors] = useState<ColorRow[]>([])
   const [refreshSig, setRefreshSig] = useState(0)
   const refresh = useCallback(() => setRefreshSig(s => s + 1), [])
-  const { toasts, add: toast } = useToast()
+  const { toasts } = useToast()
 
   useWSSync(refresh)
 
@@ -60,12 +58,6 @@ export default function App() {
     if (!user) return
     if (!allowedViews.includes(view) && allowedViews.length > 0) setView(allowedViews[0])
   }, [user, view, allowedViews])
-
-  const handleAddCustomer = async (name: string, contact: string) => {
-    const c = await api.createCustomer(name, contact)
-    setCustomers(prev => [...prev, c].sort((a, b) => a.customer_name.localeCompare(b.customer_name)))
-    toast(`Customer "${name}" added`, 'ok')
-  }
 
   if (!user) {
     return (
@@ -140,7 +132,6 @@ export default function App() {
         <Dashboard
           refreshSig={refreshSig}
           canEdit={canEdit}
-          onAddCustomer={() => setShowAddCustomer(true)}
           onCreateDispatch={() => setShowDispatch(true)}
         />
       )}
@@ -154,9 +145,6 @@ export default function App() {
         </main>
       )}
 
-      {showAddCustomer && canEdit && (
-        <AddCustomerModal onClose={() => setShowAddCustomer(false)} onAdd={handleAddCustomer} />
-      )}
       {showDispatch && canEdit && (
         <CreateDispatchModal customers={customers} colors={colors} onClose={() => setShowDispatch(false)} onCreated={refresh} />
       )}
