@@ -4,6 +4,7 @@ import type { AppUser, CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, 
 import Ic from '../icons'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import Lightbox from '../components/Lightbox'
 
 /* ── Status Badge ── */
 function StatusBadge({ status }: { status: string }) {
@@ -53,6 +54,7 @@ function CustomerLedger() {
   const [deleteOrderId, setDeleteOrderId] = useState<number | null>(null)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
   const { add: toast } = useToast()
 
   useEffect(() => {
@@ -362,7 +364,9 @@ function CustomerLedger() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {o.item_image
-                            ? <img src={o.item_image} className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0" />
+                            ? <img src={o.item_image}
+                                className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
                             : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
                           <span className="text-sm text-white font-medium">{o.color_name}</span>
                         </div>
@@ -441,6 +445,10 @@ function CustomerLedger() {
             onConfirm={handleDelete}
             onCancel={() => setDeleteOrderId(null)}
           />
+        )}
+
+        {lightbox && (
+          <Lightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
         )}
       </div>
     )
