@@ -11,6 +11,7 @@ import { useAppUpdate } from './hooks/useAppUpdate'
 import { useAppVersion } from './hooks/useAppVersion'
 import { useSessionExpiry } from './hooks/useSessionExpiry'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
+import { PinGate } from './components/PinGate'
 import Login from './components/Login'
 import UpdateBanner from './components/UpdateBanner'
 import SessionExpiryBanner from './components/SessionExpiryBanner'
@@ -32,7 +33,7 @@ function BannerStack({ children }: { children: React.ReactNode }) {
   )
 }
 
-export default function App() {
+function AppInner() {
   const { user, token, login, logout, refreshSession, logoutReason } = useAuth()
   const { showWarning: showSessionWarning, dismiss: dismissSessionWarning } = useSessionExpiry(token)
   const updateInfo = useAppUpdate()
@@ -205,4 +206,14 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+// PIN gate wrapped around the whole app, kept as a separate outer component (rather than an
+// early return inside AppInner) so it doesn't change AppInner's hook count/order between
+// renders — an early return before other hooks in the same component violates the Rules of
+// Hooks and crashes React once the gate unlocks and the rest of the hooks start being called.
+export default function App() {
+  const [pinUnlocked, setPinUnlocked] = useState(false)
+  if (!pinUnlocked) return <PinGate onSuccess={() => setPinUnlocked(true)} />
+  return <AppInner />
 }
