@@ -410,6 +410,11 @@ export interface InwardBatchFullLine {
   warehouse_id: number
   packing_size: string
   quantity_in_stock: number
+  // Snapshot of quantity_in_stock from when the edit form was loaded, for existing lines only.
+  // The server reconciles by delta (new - original) against the *current* live value rather than
+  // blindly overwriting, so a stale form (open while a dispatch/transfer happened elsewhere) can't
+  // silently erase that other transaction's deduction.
+  original_quantity_in_stock?: number
 }
 
 export const getInwardBatches = () => request<InwardBatch[]>('/admin/inward')

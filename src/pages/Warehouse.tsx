@@ -64,7 +64,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const [expandedBatchId, setExpandedBatchId] = useState<number | null>(null)
   const [editBatch, setEditBatch] = useState<InwardBatch | null>(null)
   const [editBatchForm, setEditBatchForm] = useState({ color_name: '', batch_number: '', import_date: '', notes: '', supplier_id: '', batch_image: null as string | null })
-  const [editLines, setEditLines] = useState<Array<{ id?: number; warehouse_id: number | ''; packing_size: string; quantity_in_stock: string }>>([])
+  const [editLines, setEditLines] = useState<Array<{ id?: number; warehouse_id: number | ''; packing_size: string; quantity_in_stock: string; original_quantity_in_stock?: number }>>([])
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
   const [deleteInvLineId, setDeleteInvLineId] = useState<number | null>(null)
   const [recordsSaving, setRecordsSaving] = useState(false)
@@ -189,6 +189,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
       warehouse_id: l.warehouse_id,
       packing_size: l.packing_size,
       quantity_in_stock: String(l.quantity_in_stock),
+      original_quantity_in_stock: l.quantity_in_stock,
     })))
   }
 
@@ -218,6 +219,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
           warehouse_id: l.warehouse_id as number,
           packing_size: l.packing_size.trim(),
           quantity_in_stock: parseInt(l.quantity_in_stock),
+          original_quantity_in_stock: l.original_quantity_in_stock,
         })),
       })
       toast('Batch updated ✓', 'ok')

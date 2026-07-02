@@ -397,7 +397,7 @@ router.put('/inward/batches/:id/full', (req, res) => {
   const { color_name, batch_number, import_date, notes, supplier_id, batch_image, lines } = req.body as {
     color_name: string; batch_number: string; import_date: string; notes: string
     supplier_id: number | null; batch_image?: string | null
-    lines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number }[]
+    lines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; original_quantity_in_stock?: number }[]
   }
 
   if (!color_name?.trim() || !batch_number?.trim() || !import_date?.trim()) {
@@ -407,7 +407,7 @@ router.put('/inward/batches/:id/full', (req, res) => {
     return res.status(400).json({ error: 'At least one inventory line is required' })
   }
 
-  const validatedLines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number }[] = []
+  const validatedLines: { id?: number; warehouse_id: number; packing_size: string; quantity_in_stock: number; original_quantity_in_stock?: number }[] = []
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
     const wid = Number(l.warehouse_id)
@@ -416,7 +416,8 @@ router.put('/inward/batches/:id/full', (req, res) => {
     if (!ps) return res.status(400).json({ error: `Line ${i + 1}: packing size is required` })
     const qty = Number(l.quantity_in_stock)
     if (!Number.isInteger(qty) || qty < 0) return res.status(400).json({ error: `Line ${i + 1}: quantity must be a non-negative integer` })
-    validatedLines.push({ id: l.id, warehouse_id: wid, packing_size: ps, quantity_in_stock: qty })
+    const origQty = l.original_quantity_in_stock != null ? Number(l.original_quantity_in_stock) : undefined
+    validatedLines.push({ id: l.id, warehouse_id: wid, packing_size: ps, quantity_in_stock: qty, original_quantity_in_stock: origQty })
   }
 
   if (batch_image !== undefined && batch_image !== null) {
@@ -465,11 +466,22 @@ router.put('/inward/batches/:id/full', (req, res) => {
         db.prepare('DELETE FROM inventory WHERE id = ?').run(existing.id)
       }
 
-      // Update existing lines / insert new ones
+      // Update existing lines / insert new ones. Existing lines are reconciled by delta
+      // (submitted qty vs. the snapshot the edit form loaded), applied on top of whatever the
+      // *current* live quantity_in_stock is — not a blind overwrite. quantity_in_stock is a
+      // live field that dispatch/transfer actions can change while this form sits open; blindly
+      // SETting it to the form's value would silently erase any such deduction that happened
+      // in between (see server/routes/transfers.ts's PUT /:id for the same pattern).
       for (const l of validatedLines) {
         if (l.id != null && existingLines.some(e => e.id === l.id)) {
+          const current = db.prepare('SELECT quantity_in_stock FROM inventory WHERE id = ?').get(l.id) as { quantity_in_stock: number }
+          const delta = l.original_quantity_in_stock != null ? l.quantity_in_stock - l.original_quantity_in_stock : l.quantity_in_stock - current.quantity_in_stock
+          const newQty = current.quantity_in_stock + delta
+          if (newQty < 0) {
+            throw new Error(`${l.packing_size}: cannot reduce below 0 (currently ${current.quantity_in_stock} in stock)`)
+          }
           db.prepare('UPDATE inventory SET warehouse_id=?, packing_size=?, quantity_in_stock=? WHERE id=?')
-            .run(l.warehouse_id, l.packing_size, l.quantity_in_stock, l.id)
+            .run(l.warehouse_id, l.packing_size, newQty, l.id)
         } else {
           db.prepare(
             'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock) VALUES (?, ?, ?, ?)'
