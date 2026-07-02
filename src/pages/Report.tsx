@@ -602,7 +602,8 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
           <td>${new Date(b.import_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</td>
           <td class="sm">${b.pack_sizes ?? '—'}</td>
           <td class="sm">${b.warehouses ?? '—'}</td>
-          <td class="bold center">${b.current_stock.toLocaleString()}</td>
+          <td class="bold center">${b.received.toLocaleString()}</td>
+          <td class="center">${b.current_stock.toLocaleString()}</td>
           <td><span class="badge badge-${b.batch_status.toLowerCase()}">${b.batch_status}</span></td>
         </tr>`).join('')
 
@@ -628,7 +629,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
   .customer-name { font-size: 16px; font-weight: 700; }
   .customer-contact { font-size: 11px; color: #555; margin-top: 2px; }
   /* Summary grid */
-  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+  .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
   .stat { border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px; text-align: center; }
   .stat .num { font-size: 20px; font-weight: 800; line-height: 1; }
   .stat .lbl { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 4px; }
@@ -682,6 +683,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
 
   <div class="summary">
     <div class="stat"><div class="num">${totals.total_batches}</div><div class="lbl">Total Batches</div></div>
+    <div class="stat"><div class="num">${totals.received_bags.toLocaleString()}</div><div class="lbl">Received (bags)</div></div>
     <div class="stat"><div class="num">${totals.current_stock_bags.toLocaleString()}</div><div class="lbl">Current Stock (bags)</div></div>
     <div class="stat"><div class="num num-green">${activeBatches}</div><div class="lbl">Active</div></div>
     <div class="stat"><div class="num num-gray">${depletedBatches}</div><div class="lbl">Depleted</div></div>
@@ -694,7 +696,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
     <thead>
       <tr>
         <th>Item</th><th>Batch</th><th>Import Date</th><th>Pack Sizes</th>
-        <th>Warehouses</th><th style="text-align:center">Stock (bags)</th><th>Status</th>
+        <th>Warehouses</th><th style="text-align:center">Received</th><th style="text-align:center">Current Stock</th><th>Status</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -741,9 +743,10 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3 mb-5">
+        <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: 'Batches Supplied', value: totals.total_batches, color: 'text-white' },
+            { label: 'Received (bags)', value: totals.received_bags.toLocaleString(), color: 'text-blue-400' },
             { label: 'Current Stock (bags)', value: totals.current_stock_bags.toLocaleString(), color: 'text-emerald-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-center">
@@ -763,7 +766,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-800/60 border-b border-gray-800">
-                    {['ITEM', 'BATCH', 'IMPORT DATE', 'PACK SIZES', 'WAREHOUSES', 'STOCK (bags)', 'STATUS'].map(h => (
+                    {['ITEM', 'BATCH', 'IMPORT DATE', 'PACK SIZES', 'WAREHOUSES', 'RECEIVED', 'CURRENT STOCK', 'STATUS'].map(h => (
                       <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-400 tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                     {(canEdit || canDelete) && <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-400 tracking-wider">ACTIONS</th>}
@@ -786,6 +789,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
                       <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{b.import_date}</td>
                       <td className="px-4 py-3 text-xs text-gray-400">{b.pack_sizes ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-400">{b.warehouses ?? '—'}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-blue-400">{b.received.toLocaleString()}</td>
                       <td className="px-4 py-3 text-sm font-bold text-white">{b.current_stock.toLocaleString()}</td>
                       <td className="px-4 py-3"><StatusBadge status={b.batch_status} /></td>
                       {(canEdit || canDelete) && (
@@ -901,8 +905,8 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
               <p className="text-xs text-gray-400 truncate">{[s.contact_number, s.address].filter(Boolean).join(' · ') || 'No details'}</p>
             </div>
             <div className="text-right flex-shrink-0">
-              <p className="text-sm font-bold text-white">{s.current_stock_bags.toLocaleString()} <span className="text-xs font-normal text-gray-500">bags</span></p>
-              <p className="text-xs text-gray-500">{s.total_batches} batches</p>
+              <p className="text-sm font-bold text-white">{s.received_bags.toLocaleString()} <span className="text-xs font-normal text-gray-500">received</span></p>
+              <p className="text-xs text-gray-500">{s.total_batches} batches · {s.current_stock_bags.toLocaleString()} in stock</p>
             </div>
             <Ic.ChevronRight />
           </button>

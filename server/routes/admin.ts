@@ -285,6 +285,7 @@ router.get('/ledger/suppliers', (_req, res) => {
     SELECT
       s.id, s.supplier_name, s.contact_number, s.address,
       COUNT(DISTINCT b.id)                          AS total_batches,
+      COALESCE(SUM(inv.original_quantity), 0)       AS received_bags,
       COALESCE(SUM(inv.quantity_in_stock), 0)       AS current_stock_bags,
       MAX(b.import_date)                            AS last_inward_date
     FROM suppliers s
@@ -302,10 +303,15 @@ router.get('/ledger/supplier/:id', (req, res) => {
   const supplier = db.prepare('SELECT id, supplier_name, contact_number, address FROM suppliers WHERE id = ?').get(id)
   if (!supplier) return res.status(404).json({ error: 'Supplier not found' })
 
+  // received (original_quantity) is bags ever inwarded for this batch line, never decremented by
+  // dispatch/transfer — current_stock (quantity_in_stock) is what's left right now. Showing only
+  // current_stock here reads as "amount received" and doesn't reconcile against dispatch history
+  // shown elsewhere (Customer Ledger, Daily Report) — see original_quantity's introduction for why.
   const batches = db.prepare(`
     SELECT
       b.id AS batch_id, b.batch_number, b.import_date, b.status AS batch_status,
       it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
+      COALESCE(SUM(inv.original_quantity), 0) AS received,
       COALESCE(SUM(inv.quantity_in_stock), 0) AS current_stock,
       GROUP_CONCAT(DISTINCT w.warehouse_name)  AS warehouses,
       GROUP_CONCAT(DISTINCT inv.packing_size)  AS pack_sizes
@@ -321,6 +327,7 @@ router.get('/ledger/supplier/:id', (req, res) => {
   const totals = db.prepare(`
     SELECT
       COUNT(DISTINCT b.id)                    AS total_batches,
+      COALESCE(SUM(inv.original_quantity), 0) AS received_bags,
       COALESCE(SUM(inv.quantity_in_stock), 0) AS current_stock_bags
     FROM batches b
     LEFT JOIN inventory inv ON inv.batch_id = b.id

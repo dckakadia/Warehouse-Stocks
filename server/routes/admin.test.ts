@@ -171,3 +171,31 @@ describe('DELETE /inward/batches/:id', () => {
     expect(batch).toBeDefined() // batch was not deleted
   })
 })
+
+describe('GET /ledger/suppliers and /ledger/supplier/:id', () => {
+  it('reports received (original_quantity) separately from current stock after a dispatch', async () => {
+    const supplierId = db.prepare("INSERT INTO suppliers (supplier_name) VALUES ('Ranbow')").run().lastInsertRowid as number
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date, supplier_id) VALUES (?, 'KPR', '2026-07-01', ?)"
+    ).run(itemId, supplierId).lastInsertRowid as number
+    db.prepare(
+      'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, original_quantity) VALUES (?, ?, ?, ?, ?)'
+    ).run(batchId, warehouseA, '25kg', 4, 8) // 8 received, 4 dispatched already reflected in live balance
+
+    const listRes = await fetch(`${server.url}/ledger/suppliers`)
+    const list = await listRes.json() as { supplier_name: string; received_bags: number; current_stock_bags: number }[]
+    const ranbow = list.find(s => s.supplier_name === 'Ranbow')!
+    expect(ranbow.received_bags).toBe(8)
+    expect(ranbow.current_stock_bags).toBe(4)
+
+    const detailRes = await fetch(`${server.url}/ledger/supplier/${supplierId}`)
+    const detail = await detailRes.json() as {
+      totals: { received_bags: number; current_stock_bags: number }
+      batches: { received: number; current_stock: number }[]
+    }
+    expect(detail.totals.received_bags).toBe(8)
+    expect(detail.totals.current_stock_bags).toBe(4)
+    expect(detail.batches[0].received).toBe(8)
+    expect(detail.batches[0].current_stock).toBe(4)
+  })
+})

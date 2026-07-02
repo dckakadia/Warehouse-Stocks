@@ -347,6 +347,7 @@ export interface SupplierSummary {
   contact_number: string
   address: string
   total_batches: number
+  received_bags: number
   current_stock_bags: number
   last_inward_date: string | null
 }
@@ -358,6 +359,7 @@ export interface SupplierBatchRow {
   batch_status: string
   color_name: string
   item_image: string | null
+  received: number
   current_stock: number
   warehouses: string | null
   pack_sizes: string | null
@@ -366,7 +368,7 @@ export interface SupplierBatchRow {
 export interface SupplierLedgerDetail {
   supplier: { id: number; supplier_name: string; contact_number: string; address: string }
   batches: SupplierBatchRow[]
-  totals: { total_batches: number; current_stock_bags: number }
+  totals: { total_batches: number; received_bags: number; current_stock_bags: number }
 }
 
 export const getLedgerCustomers     = () => request<CustomerSummary[]>('/admin/ledger/customers')
