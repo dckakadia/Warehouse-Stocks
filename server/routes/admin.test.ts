@@ -199,3 +199,77 @@ describe('GET /ledger/suppliers and /ledger/supplier/:id', () => {
     expect(detail.batches[0].current_stock).toBe(4)
   })
 })
+
+describe('PUT /inward/batches/:id — received quantity correction', () => {
+  it('raising received quantity increases current stock by the same delta', async () => {
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'BATCH-G', '2026-01-01')"
+    ).run(itemId).lastInsertRowid as number
+    const lineId = db.prepare(
+      'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, original_quantity) VALUES (?, ?, ?, ?, ?)'
+    ).run(batchId, warehouseA, '20kg', 4, 8).lastInsertRowid as number // 8 received, 4 dispatched, 4 in stock
+
+    const res = await fetch(`${server.url}/inward/batches/${batchId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_number: 'BATCH-G', import_date: '2026-01-01', notes: '', supplier_id: null,
+        lines: [{ id: lineId, received: 10, received_snapshot: 8 }], // +2 correction
+      }),
+    })
+    expect(res.status).toBe(200)
+    const row = db.prepare('SELECT quantity_in_stock, original_quantity FROM inventory WHERE id = ?').get(lineId) as
+      { quantity_in_stock: number; original_quantity: number }
+    expect(row.original_quantity).toBe(10)
+    expect(row.quantity_in_stock).toBe(6) // 4 + 2, the correction assumes those bags are still on hand
+  })
+
+  it('rejects lowering received quantity past what has already been dispatched', async () => {
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'BATCH-H', '2026-01-01')"
+    ).run(itemId).lastInsertRowid as number
+    const lineId = db.prepare(
+      'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, original_quantity) VALUES (?, ?, ?, ?, ?)'
+    ).run(batchId, warehouseA, '20kg', 4, 8).lastInsertRowid as number // 8 received, 4 dispatched, 4 in stock
+
+    const res = await fetch(`${server.url}/inward/batches/${batchId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_number: 'BATCH-H', import_date: '2026-01-01', notes: '', supplier_id: null,
+        lines: [{ id: lineId, received: 2, received_snapshot: 8 }], // -6, but only 4 bags of headroom
+      }),
+    })
+    expect(res.status).toBe(409)
+    const row = db.prepare('SELECT quantity_in_stock, original_quantity FROM inventory WHERE id = ?').get(lineId) as
+      { quantity_in_stock: number; original_quantity: number }
+    expect(row.original_quantity).toBe(8) // unchanged
+    expect(row.quantity_in_stock).toBe(4) // unchanged
+  })
+
+  it('an unchanged received value (matching snapshot) is a no-op even if edited elsewhere', async () => {
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'BATCH-I', '2026-01-01')"
+    ).run(itemId).lastInsertRowid as number
+    const lineId = db.prepare(
+      'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, original_quantity) VALUES (?, ?, ?, ?, ?)'
+    ).run(batchId, warehouseA, '20kg', 4, 8).lastInsertRowid as number
+
+    // Simulate a dispatch happening after the edit form loaded but before it was saved.
+    db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock - 1 WHERE id = ?').run(lineId)
+
+    const res = await fetch(`${server.url}/inward/batches/${batchId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_number: 'BATCH-I', import_date: '2026-01-01', notes: '', supplier_id: null,
+        lines: [{ id: lineId, received: 8, received_snapshot: 8 }], // untouched by the user
+      }),
+    })
+    expect(res.status).toBe(200)
+    const row = db.prepare('SELECT quantity_in_stock, original_quantity FROM inventory WHERE id = ?').get(lineId) as
+      { quantity_in_stock: number; original_quantity: number }
+    expect(row.original_quantity).toBe(8)
+    expect(row.quantity_in_stock).toBe(3) // the concurrent dispatch's deduction survives
+  })
+})

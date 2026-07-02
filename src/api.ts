@@ -387,6 +387,7 @@ export interface InwardInventoryLine {
   warehouse_id: number
   packing_size: string
   quantity_in_stock: number
+  original_quantity: number
   warehouse_name: string
 }
 
@@ -419,8 +420,19 @@ export interface InwardBatchFullLine {
   original_quantity_in_stock?: number
 }
 
+export interface SupplierEditReceivedLine {
+  id: number
+  received: number
+  // Snapshot of received quantity from when the edit form was loaded — same delta-vs-snapshot
+  // safety as InwardBatchFullLine.original_quantity_in_stock above.
+  received_snapshot: number
+}
+
 export const getInwardBatches = () => request<InwardBatch[]>('/admin/inward')
-export const updateInwardBatch = (id: number, body: { batch_number: string; import_date: string; notes: string; supplier_id: number | null }) =>
+export const updateInwardBatch = (id: number, body: {
+  batch_number: string; import_date: string; notes: string; supplier_id: number | null
+  lines?: SupplierEditReceivedLine[]
+}) =>
   request<{ success: boolean }>(`/admin/inward/batches/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const updateInwardBatchFull = (id: number, body: {
   color_name: string; batch_number: string; import_date: string; notes: string

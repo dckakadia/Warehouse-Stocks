@@ -514,6 +514,8 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
   const [editBatchNumber, setEditBatchNumber] = useState('')
   const [editImportDate, setEditImportDate] = useState('')
   const [editNotes, setEditNotes] = useState('')
+  const [editLines, setEditLines] = useState<Array<{ id: number; warehouse_name: string; packing_size: string; received: string; received_snapshot: number }>>([])
+  const [editLinesLoading, setEditLinesLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [deleteBatchId, setDeleteBatchId] = useState<number | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
@@ -549,11 +551,27 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
     setSelected(detail)
   }
 
-  const openEditBatch = (b: SupplierBatchRow) => {
+  const openEditBatch = async (b: SupplierBatchRow) => {
     setEditBatch(b)
     setEditBatchNumber(b.batch_number)
     setEditImportDate(b.import_date)
     setEditNotes('')
+    setEditLines([])
+    setEditLinesLoading(true)
+    try {
+      const allBatches = await api.getInwardBatches()
+      const match = allBatches.find(ib => ib.id === b.batch_id)
+      setEditLines((match?.inventory ?? []).map(l => ({
+        id: l.id,
+        warehouse_name: l.warehouse_name,
+        packing_size: l.packing_size,
+        received: String(l.original_quantity),
+        received_snapshot: l.original_quantity,
+      })))
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to load inventory lines', 'err')
+    }
+    setEditLinesLoading(false)
   }
 
   const handleEditBatchSave = async () => {
@@ -565,6 +583,11 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
         import_date: editImportDate,
         notes: editNotes,
         supplier_id: selected.supplier.id,
+        lines: editLines.map(l => ({
+          id: l.id,
+          received: Number(l.received),
+          received_snapshot: l.received_snapshot,
+        })),
       })
       toast('Batch updated', 'ok')
       setEditBatch(null)
@@ -820,7 +843,7 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
 
         {editBatch && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-            <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="bg-gray-900 border border-blue-800/50 rounded-xl p-6 max-w-md w-full shadow-2xl">
               <p className="text-sm font-semibold text-white mb-1">Edit Batch <span className="font-mono text-blue-400">{editBatch.batch_number}</span></p>
               <p className="text-xs text-gray-400 mb-4">{editBatch.color_name}</p>
               <div className="space-y-4">
@@ -840,11 +863,40 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
                     placeholder="Optional"
                     className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wide">Received Quantity</label>
+                  {editLinesLoading ? (
+                    <p className="text-xs text-gray-500">Loading inventory lines…</p>
+                  ) : editLines.length === 0 ? (
+                    <p className="text-xs text-gray-500">No inventory lines found for this batch.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {editLines.map((l, idx) => (
+                        <div key={l.id} className="flex items-center gap-2 bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-300 truncate">{l.warehouse_name}</p>
+                            <p className="text-xs text-gray-500">{l.packing_size}</p>
+                          </div>
+                          <input type="number" min="0" value={l.received}
+                            onChange={e => {
+                              const v = e.target.value
+                              setEditLines(prev => prev.map((row, i) => i === idx ? { ...row, received: v } : row))
+                            }}
+                            className="w-24 px-2.5 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white text-right focus:outline-none focus:border-blue-500" />
+                        </div>
+                      ))}
+                      <p className="text-xs text-gray-500">
+                        Correcting this also adjusts current stock by the same amount — e.g. raising it by 2 assumes those 2 bags are still on hand.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2 mt-5">
                 <button onClick={() => setEditBatch(null)}
                   className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Cancel</button>
-                <button onClick={handleEditBatchSave} disabled={editSaving || !editBatchNumber.trim() || !editImportDate.trim()}
+                <button onClick={handleEditBatchSave}
+                  disabled={editSaving || editLinesLoading || !editBatchNumber.trim() || !editImportDate.trim() || editLines.some(l => l.received === '' || Number(l.received) < 0)}
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors">
                   {editSaving ? 'Saving…' : 'Save Changes'}
                 </button>

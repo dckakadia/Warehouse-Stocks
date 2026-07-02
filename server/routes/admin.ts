@@ -358,7 +358,7 @@ router.get('/inward', (_req, res) => {
 
   const invRows = db.prepare(`
     SELECT inv.id, inv.batch_id, inv.warehouse_id, inv.packing_size,
-           inv.quantity_in_stock,
+           inv.quantity_in_stock, inv.original_quantity,
            w.warehouse_name
     FROM inventory inv
     JOIN warehouses w ON inv.warehouse_id = w.id
@@ -373,11 +373,12 @@ router.get('/inward', (_req, res) => {
   res.json(batches.map(b => ({ ...b, inventory: invByBatch[b.id as number] ?? [] })))
 })
 
-/* Edit batch metadata */
+/* Edit batch metadata — optionally also corrects received quantity (original_quantity) per line */
 router.put('/inward/batches/:id', (req, res) => {
   const id = Number(req.params.id)
-  const { batch_number, import_date, notes, supplier_id } = req.body as {
+  const { batch_number, import_date, notes, supplier_id, lines } = req.body as {
     batch_number: string; import_date: string; notes: string; supplier_id: number | null
+    lines?: { id: number; received: number; received_snapshot: number }[]
   }
   if (!batch_number?.trim() || !import_date?.trim()) {
     return res.status(400).json({ error: 'batch_number and import_date are required' })
@@ -385,14 +386,44 @@ router.put('/inward/batches/:id', (req, res) => {
   if (!db.prepare('SELECT id FROM batches WHERE id = ?').get(id)) {
     return res.status(404).json({ error: 'Batch not found' })
   }
+  for (const l of lines ?? []) {
+    if (!Number.isInteger(Number(l.received)) || Number(l.received) < 0) {
+      return res.status(400).json({ error: 'Received quantity must be a non-negative integer' })
+    }
+  }
+
   try {
-    db.prepare('UPDATE batches SET batch_number=?, import_date=?, notes=?, supplier_id=? WHERE id=?')
-      .run(batch_number.trim(), import_date.trim(), notes ?? '', supplier_id ? Number(supplier_id) : null, id)
+    db.transaction(() => {
+      db.prepare('UPDATE batches SET batch_number=?, import_date=?, notes=?, supplier_id=? WHERE id=?')
+        .run(batch_number.trim(), import_date.trim(), notes ?? '', supplier_id ? Number(supplier_id) : null, id)
+
+      // A received-quantity correction shifts current stock by the same delta — mirrors how a
+      // normal inward addition works (POST /api/inward increments both together): correcting
+      // upward means bags were physically received but never recorded, so they're presumed still
+      // in stock; correcting downward means the recorded receipt was an overcount. Delta is
+      // computed against the snapshot the edit form loaded, then applied to the *current* live
+      // value — not a blind overwrite — so a stale form can't clobber a dispatch/transfer that
+      // happened after it was opened (same reasoning as the /full editor's line reconciliation).
+      for (const l of lines ?? []) {
+        const delta = Number(l.received) - Number(l.received_snapshot)
+        if (delta === 0) continue
+        const row = db.prepare('SELECT batch_id, original_quantity, quantity_in_stock FROM inventory WHERE id = ?').get(l.id) as
+          { batch_id: number; original_quantity: number; quantity_in_stock: number } | undefined
+        if (!row || row.batch_id !== id) throw new Error('Inventory line not found for this batch')
+        const newReceived = row.original_quantity + delta
+        const newStock = row.quantity_in_stock + delta
+        if (newStock < 0) {
+          throw new Error(`Cannot reduce received quantity by that much — only ${row.quantity_in_stock} bags of headroom before dispatched/transferred stock would go negative`)
+        }
+        if (newReceived < 0) throw new Error('Received quantity cannot go negative')
+        db.prepare('UPDATE inventory SET original_quantity = ?, quantity_in_stock = ? WHERE id = ?').run(newReceived, newStock, l.id)
+      }
+    })()
     return res.json({ success: true })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     if (msg.includes('UNIQUE')) return res.status(409).json({ error: 'Batch number already exists for this item' })
-    return res.status(500).json({ error: msg })
+    return res.status(409).json({ error: msg })
   }
 })
 
