@@ -93,11 +93,12 @@ router.post('/', requireEdit, (req, res) => {
     const results = []
     for (const { packing_size, quantity } of validatedEntries) {
       db.prepare(
-        `INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, original_quantity)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(batch_id, warehouse_id, packing_size) DO UPDATE SET
-           quantity_in_stock = quantity_in_stock + excluded.quantity_in_stock`
-      ).run(batch.id, wid, packing_size, quantity)
+           quantity_in_stock = quantity_in_stock + excluded.quantity_in_stock,
+           original_quantity = original_quantity + excluded.quantity_in_stock`
+      ).run(batch.id, wid, packing_size, quantity, quantity)
       results.push({ packing_size, quantity, warehouse_id: wid })
     }
     return { batch_id: batch.id, entries: results, reactivated }

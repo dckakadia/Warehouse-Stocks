@@ -250,4 +250,47 @@ if (!appUsersSql.includes("'admin'")) {
   db.pragma('foreign_keys = ON')
 }
 
+// Add original_quantity to inventory — records bags received at inward time, never decremented
+let justAddedOriginalQuantity = false
+try {
+  db.exec("ALTER TABLE inventory ADD COLUMN original_quantity INTEGER NOT NULL DEFAULT 0")
+  justAddedOriginalQuantity = true
+} catch { /* already exists */ }
+
+if (justAddedOriginalQuantity) {
+  // Backfill: reconstruct original inward quantity =
+  //   current balance
+  //   + all bags ever dispatched from this (batch, warehouse, packing_size)
+  //   + bags transferred OUT from this warehouse
+  //   - bags transferred IN to this warehouse
+  //
+  // dispatch_logs itself has no warehouse_id (only dispatch_orders does), so the dispatched-bags
+  // subquery joins through dispatch_orders to scope by warehouse. Without this join, a batch with
+  // inventory lines in multiple warehouses (i.e. any batch that's ever been split via a transfer)
+  // would have its dispatched total double-counted against every one of that batch's warehouse
+  // lines instead of just the one it was actually dispatched from.
+  db.exec(`
+    UPDATE inventory SET original_quantity = quantity_in_stock + (
+      SELECT COALESCE(SUM(dl.bags_dispatched), 0)
+      FROM dispatch_logs dl
+      JOIN dispatch_orders do ON do.id = dl.dispatch_order_id
+      WHERE do.batch_id     = inventory.batch_id
+        AND do.packing_size = inventory.packing_size
+        AND do.warehouse_id = inventory.warehouse_id
+    ) + (
+      SELECT COALESCE(SUM(st.bags), 0)
+      FROM stock_transfers st
+      WHERE st.batch_id          = inventory.batch_id
+        AND st.packing_size      = inventory.packing_size
+        AND st.from_warehouse_id = inventory.warehouse_id
+    ) - (
+      SELECT COALESCE(SUM(st.bags), 0)
+      FROM stock_transfers st
+      WHERE st.batch_id        = inventory.batch_id
+        AND st.packing_size    = inventory.packing_size
+        AND st.to_warehouse_id = inventory.warehouse_id
+    )
+  `)
+}
+
 export default db

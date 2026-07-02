@@ -21,7 +21,7 @@ router.get('/daily', (req, res) => {
       b.id AS batch_id, b.batch_number, b.import_date,
       it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
       b.supplier_id, s.supplier_name,
-      w.warehouse_name, inv.packing_size, inv.quantity_in_stock
+      w.warehouse_name, inv.packing_size, inv.original_quantity AS quantity_in_stock
     FROM batches b
     JOIN items it     ON b.item_id  = it.id
     JOIN inventory inv ON inv.batch_id = b.id
