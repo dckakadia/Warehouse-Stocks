@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 // TODO: move to env var before sharing APK externally
-const WAREHOUSE_PIN = '1234'
+const WAREHOUSE_PIN = '7477'
 
 type Key = { kind: 'digit'; digit: string; sub?: string } | { kind: 'blank' } | { kind: 'del' }
 
@@ -53,7 +53,6 @@ export function PinGate({ onSuccess }: Props) {
           </svg>
         </div>
         <p className="text-white text-lg font-medium mt-4">Enter PIN</p>
-        <p className="text-gray-500 text-sm mt-1">Warehouse Stocks</p>
       </div>
 
       <div className={`flex flex-row gap-4 my-8 ${shaking ? 'shake' : ''}`}>

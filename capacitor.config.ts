@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.embroideryglassbeads.warehouse',
-  appName: 'Warehouse Stocks',
+  appName: 'WMS',
   webDir: 'dist',
   server: {
     url: 'http://116.74.77.22:8088',
