@@ -590,12 +590,146 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
 
   if (selected) {
     const { supplier, batches, totals } = selected
+
+    const activeBatches = batches.filter(b => b.batch_status === 'Active').length
+    const depletedBatches = batches.filter(b => b.batch_status === 'Depleted').length
+
+    const handlePrint = () => {
+      const rows = batches.map(b => `
+        <tr>
+          <td class="bold">${b.color_name}</td>
+          <td class="mono sm">${b.batch_number}</td>
+          <td>${new Date(b.import_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</td>
+          <td class="sm">${b.pack_sizes ?? '—'}</td>
+          <td class="sm">${b.warehouses ?? '—'}</td>
+          <td class="bold center">${b.current_stock.toLocaleString()}</td>
+          <td><span class="badge badge-${b.batch_status.toLowerCase()}">${b.batch_status}</span></td>
+        </tr>`).join('')
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Supplier Ledger — ${supplier.supplier_name}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; font-size: 11px; line-height: 1.4; }
+  .page { padding: 24px 28px; }
+  /* Header */
+  .header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; border-bottom: 2.5px solid #1a1a1a; margin-bottom: 16px; }
+  .company-name { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #111; }
+  .report-title { font-size: 12px; color: #555; margin-top: 2px; font-weight: 500; }
+  .header-right { text-align: right; }
+  .header-right .label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; }
+  .header-right .value { font-size: 13px; font-weight: 700; margin-top: 1px; }
+  .header-right .sub { font-size: 10px; color: #555; margin-top: 2px; }
+  /* Supplier info */
+  .customer-bar { display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+  .customer-name { font-size: 16px; font-weight: 700; }
+  .customer-contact { font-size: 11px; color: #555; margin-top: 2px; }
+  /* Summary grid */
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+  .stat { border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .stat .num { font-size: 20px; font-weight: 800; line-height: 1; }
+  .stat .lbl { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 4px; }
+  .num-green { color: #16a34a; }
+  .num-gray  { color: #6b7280; }
+  /* Table */
+  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #1a1a1a; }
+  th { padding: 7px 10px; text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #fff; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  tr:nth-child(even) td { background: #fafafa; }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-family: 'Courier New', monospace; }
+  .sm { font-size: 10px; color: #444; }
+  .bold { font-weight: 700; }
+  .center { text-align: center; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
+  .badge-active   { background: #d1fae5; color: #065f46; }
+  .badge-depleted { background: #f3f4f6; color: #4b5563; }
+  /* Footer */
+  .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
+  .no-orders { text-align: center; padding: 30px; color: #999; font-style: italic; }
+  @media print {
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    @page { margin: 12mm 14mm; size: A4 landscape; }
+    .page { padding: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="company-name">Glass Beads WMS</div>
+      <div class="report-title">Supplier Ledger Report</div>
+    </div>
+    <div class="header-right">
+      <div class="label">Generated</div>
+      <div class="value">${new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</div>
+      <div class="sub">${new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })}</div>
+    </div>
+  </div>
+
+  <div class="customer-bar">
+    <div>
+      <div class="customer-name">${supplier.supplier_name}</div>
+      ${[supplier.contact_number, supplier.address].filter(Boolean).length ? `<div class="customer-contact">${[supplier.contact_number, supplier.address].filter(Boolean).join(' · ')}</div>` : ''}
+    </div>
+  </div>
+
+  <div class="summary">
+    <div class="stat"><div class="num">${totals.total_batches}</div><div class="lbl">Total Batches</div></div>
+    <div class="stat"><div class="num">${totals.current_stock_bags.toLocaleString()}</div><div class="lbl">Current Stock (bags)</div></div>
+    <div class="stat"><div class="num num-green">${activeBatches}</div><div class="lbl">Active</div></div>
+    <div class="stat"><div class="num num-gray">${depletedBatches}</div><div class="lbl">Depleted</div></div>
+  </div>
+
+  <div class="section-title">Inward Batches (${batches.length})</div>
+  ${batches.length === 0
+    ? '<div class="no-orders">No inward batches linked to this supplier yet.</div>'
+    : `<table>
+    <thead>
+      <tr>
+        <th>Item</th><th>Batch</th><th>Import Date</th><th>Pack Sizes</th>
+        <th>Warehouses</th><th style="text-align:center">Stock (bags)</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`}
+
+  <div class="footer">
+    <span>Glass Beads WMS — Confidential</span>
+    <span>Supplier: ${supplier.supplier_name}</span>
+    <span>Page 1</span>
+  </div>
+</div>
+</body>
+</html>`
+
+      printHtmlDocument(html)
+    }
+
     return (
       <div>
-        <button onClick={() => setSelected(null)}
-          className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 mb-4 transition-colors">
-          <Ic.Left /> All Suppliers
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={() => setSelected(null)}
+            className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+            <Ic.Left /> All Suppliers
+          </button>
+          <div className="flex gap-2">
+            <button onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+              <Ic.Print /> Print
+            </button>
+            <button onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-xs font-medium transition-colors">
+              <Ic.FilePdf /> PDF
+            </button>
+          </div>
+        </div>
         <div className="mb-5">
           <div className="flex items-center gap-3 mb-1">
             <span className="w-9 h-9 rounded-full bg-purple-900/40 border border-purple-700/60 flex items-center justify-center text-purple-300 font-bold text-sm">
