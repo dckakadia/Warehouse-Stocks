@@ -40,20 +40,28 @@ export function printHtmlDocument(html: string) {
     // stranded with no way back, regardless of whether the print job itself succeeds.
     const overlay = document.createElement('div')
     overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;'
+    // A dedicated toolbar strip (its own background, occupying real layout space) rather than a
+    // button floating on top of the iframe — the report's own printed header also renders text in
+    // that top-right corner, so a floating button sat directly on top of it and covered it up. The
+    // toolbar reserves space so the iframe content is pushed down below it instead of underneath it.
+    const TOOLBAR_H = 48
+    const toolbar = document.createElement('div')
+    toolbar.className = 'wms-print-toolbar'
+    toolbar.style.cssText = `position:fixed;top:0;left:0;right:0;z-index:10000;height:calc(env(safe-area-inset-top) + ${TOOLBAR_H}px);padding-top:env(safe-area-inset-top);padding-right:max(8px, env(safe-area-inset-right));box-sizing:border-box;background:#1a1a1a;display:flex;align-items:center;justify-content:flex-end;`
     const closeBtn = document.createElement('button')
     closeBtn.textContent = '✕ Close'
-    closeBtn.className = 'wms-print-close'
-    closeBtn.style.cssText = 'position:fixed;top:8px;right:8px;z-index:10000;padding:8px 14px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;'
+    closeBtn.style.cssText = 'padding:8px 14px;background:#333;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;'
+    toolbar.appendChild(closeBtn)
     // The native print job captures whatever the main WebView is currently rendering, so the
-    // Close button — being outside the iframe, in the main document — would otherwise show up
-    // in the printed/PDF output too.
+    // toolbar — being outside the iframe, in the main document — would otherwise show up in the
+    // printed/PDF output too.
     const printHideStyle = document.createElement('style')
-    printHideStyle.textContent = '@media print { .wms-print-close { display: none !important } }'
+    printHideStyle.textContent = '@media print { .wms-print-toolbar { display: none !important } }'
     document.head.appendChild(printHideStyle)
     const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:none;'
+    iframe.style.cssText = `position:fixed;left:0;right:0;bottom:0;top:calc(env(safe-area-inset-top) + ${TOOLBAR_H}px);width:100%;height:calc(100% - env(safe-area-inset-top) - ${TOOLBAR_H}px);border:none;`
     overlay.appendChild(iframe)
-    overlay.appendChild(closeBtn)
+    overlay.appendChild(toolbar)
     document.body.appendChild(overlay)
 
     const cleanup = () => {
