@@ -14,13 +14,19 @@ interface Props {
   refreshEntity: string
   canEdit: boolean
   isManager: boolean
+  // Manual trigger after a local inward/transfer/batch-edit mutation — the server's own broadcast
+  // for the same mutation will also arrive via WS, this just avoids waiting on that round-trip
+  // (mobile WebSocket connections routinely drop while backgrounded/screen-locked, which otherwise
+  // left the very page that made the change stuck showing stale data until logout/login forced a
+  // remount). Mirrors CreateDispatchModal's onCreated={refresh} pattern in App.tsx.
+  onDataChanged?: (entity: string) => void
 }
 
 // Entities that affect the picking list / inward / transfer forms — anything else
 // (e.g. a customer or user edit) shouldn't flash-refetch this page.
 const RELEVANT_ENTITIES = new Set(['inventory', 'dispatch', 'transfers', 'items', 'warehouses', 'suppliers'])
 
-export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isManager }: Props) {
+export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isManager, onDataChanged }: Props) {
   const [tab, setTab] = useState<'picking' | 'inward' | 'transfer' | 'records'>('picking')
   const [orders, setOrders] = useState<DispatchOrder[]>([])
   const [colors, setColors] = useState<ColorRow[]>([])
@@ -38,7 +44,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const [iDate, setIDate] = useState(todayISO)
   const [iWarehouseId, setIWarehouseId] = useState<number | ''>('')
   const [iSupplierId, setISupplierId] = useState<number | ''>('')
-  const [iEntries, setIEntries] = useState<Array<{ packSize: string; qty: string }>>([{ packSize: '', qty: '' }])
+  const [iEntries, setIEntries] = useState<Array<{ packSize: string; unit: string; qty: string }>>([{ packSize: '', unit: 'kg', qty: '' }])
   const [iImage, setIImage] = useState<string | null>(null)
   const [iImageIsDefault, setIImageIsDefault] = useState(false)
   const [iNotes, setINotes] = useState('')
@@ -225,6 +231,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
       toast('Batch updated ✓', 'ok')
       setEditBatch(null)
       await loadInwardBatches()
+      onDataChanged?.('inventory')
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Update failed', 'err')
     }
@@ -239,6 +246,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
       setDeleteBatchId(null)
       setExpandedBatchId(null)
       await loadInwardBatches()
+      onDataChanged?.('inventory')
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Delete failed', 'err')
     }
@@ -251,6 +259,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
       toast('Inventory line deleted', 'ok')
       setDeleteInvLineId(null)
       await loadInwardBatches()
+      onDataChanged?.('inventory')
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Delete failed', 'err')
     }
@@ -279,12 +288,13 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
         import_date: iDate,
         warehouse_id: iWarehouseId as number,
         supplier_id: iSupplierId !== '' ? iSupplierId as number : undefined,
-        entries: validEntries.map(en => ({ packing_size: en.packSize.trim(), quantity: parseInt(en.qty) })),
+        entries: validEntries.map(en => ({ packing_size: `${en.packSize.trim()}${en.unit}`, quantity: parseInt(en.qty) })),
         batch_image: iImage,
         notes: iNotes.trim(),
       })
       toast('Stock added successfully ✓', 'ok')
-      setIBatch(''); setIWarehouseId(''); setISupplierId(''); setIEntries([{ packSize: '', qty: '' }]); setIImage(null); setIImageIsDefault(false); setINotes('')
+      setIBatch(''); setIWarehouseId(''); setISupplierId(''); setIEntries([{ packSize: '', unit: 'kg', qty: '' }]); setIImage(null); setIImageIsDefault(false); setINotes('')
+      onDataChanged?.('inventory')
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Error', 'err')
     }
@@ -310,6 +320,10 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
       toast('Transfer completed ✓', 'ok')
       setTBags(''); setTInvId(null)
       loadOrders()
+      // Re-fetch the source warehouse's batch list too — otherwise it keeps showing the
+      // pre-transfer bag count until a WS broadcast or remount happens to refresh it.
+      if (tFromWid && tColor) api.getBatches(tColor, tFromWid as number).then(setTBatches).catch(() => {})
+      onDataChanged?.('transfers')
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Transfer failed', 'err')
     }
@@ -528,8 +542,16 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
                 <div key={idx} className="flex gap-2 items-center">
                   <input type="text" value={entry.packSize}
                     onChange={e => { const v = e.target.value; setIEntries(prev => prev.map((en, i) => i === idx ? { ...en, packSize: v } : en)) }}
-                    placeholder="Package (e.g. 20kg, 25kg)"
+                    placeholder="Size (e.g. 20)"
                     className="flex-1 px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+                  <select value={entry.unit}
+                    onChange={e => { const v = e.target.value; setIEntries(prev => prev.map((en, i) => i === idx ? { ...en, unit: v } : en)) }}
+                    className="w-20 px-2 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500 appearance-none">
+                    <option value="kg">kg</option>
+                    <option value="gm">gm</option>
+                    <option value="box">box</option>
+                    <option value="pcs">pcs</option>
+                  </select>
                   <input type="number" min="1" value={entry.qty}
                     onChange={e => { const v = e.target.value; setIEntries(prev => prev.map((en, i) => i === idx ? { ...en, qty: v } : en)) }}
                     placeholder="Qty"
@@ -543,7 +565,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => setIEntries(prev => [...prev, { packSize: '', qty: '' }])}
+            <button type="button" onClick={() => setIEntries(prev => [...prev, { packSize: '', unit: 'kg', qty: '' }])}
               className="mt-2 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
               <Ic.Plus /> Add Package
             </button>

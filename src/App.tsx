@@ -182,6 +182,7 @@ function AppInner() {
           refreshEntity={refreshEntity}
           canEdit={canEdit}
           isManager={user.role === 'manager' || user.role === 'admin'}
+          onDataChanged={bumpRefresh}
         />
       )}
       {view === 'master' && canViewMaster && <MasterPage canEdit={canEdit} canDelete={canDelete} />}
