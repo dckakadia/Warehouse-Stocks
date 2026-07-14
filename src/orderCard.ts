@@ -16,56 +16,51 @@ export function buildOrderCardHtml(orders: DispatchOrder[]): string {
   const first = orders[0]
   const orderIdText = orders.length === 1 ? `DIS-${first.id}` : orders.map(o => `DIS-${o.id}`).join(', ')
 
-  // A single item keeps the original hero layout (big photo, big "Bags to Pick" figure) — this is
-  // the overwhelmingly common case and shouldn't look downgraded. A real multi-item order (from a
-  // cart submission, see order_group in server/db.ts) instead lists every item as a compact row,
-  // since there's no single "bags to pick" number that makes sense across different items/sizes.
-  const itemContent = orders.length === 1 ? `
+  // Single item keeps the original hero layout (big photo, big "Bags to Pick" figure). A real
+  // multi-item order (from a cart submission, see order_group in server/db.ts) repeats that same
+  // large-photo item-section per item instead of a compact row — the photo is a sticker the worker
+  // has to read, so it needs to stay just as large no matter how many items are in the order.
+  const itemBlock = (o: DispatchOrder, showOrderTag: boolean) => `
   <div class="item-section">
-    ${first.item_image
-      ? `<img class="item-photo" src="${first.item_image}" alt="${first.color_name}">`
+    ${o.item_image
+      ? `<img class="item-photo" src="${o.item_image}" alt="${o.color_name}">`
       : `<div class="item-photo-placeholder">No photo</div>`}
     <div class="item-fields">
       <div>
-        <div class="color-name">${first.color_name}</div>
-        <div class="hsn">HSN: ${first.hsn_code}</div>
+        ${showOrderTag ? `<div class="item-order-tag">DIS-${o.id}</div>` : ''}
+        <div class="color-name">${o.color_name}</div>
+        <div class="hsn">HSN: ${o.hsn_code}</div>
       </div>
       <div class="field-grid">
         <div>
           <div class="field-label">Batch Number</div>
-          <div class="field-value mono">${first.batch_number}</div>
+          <div class="field-value mono">${o.batch_number}</div>
         </div>
         <div>
           <div class="field-label">Warehouse</div>
-          <div class="field-value">${first.warehouse_name}</div>
+          <div class="field-value">${o.warehouse_name}</div>
         </div>
         <div>
           <div class="field-label">Pack Size</div>
-          <div class="field-value">${first.packing_size}</div>
+          <div class="field-value">${o.packing_size}</div>
         </div>
+        ${showOrderTag ? `
+        <div>
+          <div class="field-label">Bags</div>
+          <div class="field-value bags-value">${o.bags_dispatched}</div>
+        </div>` : ''}
       </div>
     </div>
-  </div>
+  </div>`
 
+  const itemContent = orders.length === 1 ? `
+  ${itemBlock(first, false)}
   <div class="bags-box">
     <div class="num">${first.bags_dispatched}</div>
     <div class="lbl">Bags to Pick</div>
   </div>` : `
   <div class="items-list">
-    ${orders.map(o => `
-    <div class="item-row">
-      ${o.item_image
-        ? `<img class="item-photo-sm" src="${o.item_image}" alt="${o.color_name}">`
-        : `<div class="item-photo-sm-placeholder">No photo</div>`}
-      <div class="item-row-fields">
-        <div class="item-row-name">${o.color_name}</div>
-        <div class="item-row-meta">DIS-${o.id} · <span class="mono">${o.batch_number}</span> · ${o.warehouse_name} · ${o.packing_size}</div>
-      </div>
-      <div class="item-row-bags">
-        <div class="num">${o.bags_dispatched}</div>
-        <div class="lbl">Bags</div>
-      </div>
-    </div>`).join('')}
+    ${orders.map(o => itemBlock(o, true)).join('')}
   </div>`
 
   return `<!DOCTYPE html>
@@ -91,29 +86,24 @@ export function buildOrderCardHtml(orders: DispatchOrder[]): string {
   .customer-bar { margin-bottom: 20px; }
   .field-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
   .customer-name { font-size: 22px; font-weight: 800; }
-  .item-section { display: flex; gap: 18px; margin-bottom: 20px; }
-  .item-photo { width: 160px; height: 160px; object-fit: cover; border-radius: 10px; border: 1px solid #e0e0e0; flex-shrink: 0; }
-  .item-photo-placeholder { width: 160px; height: 160px; border-radius: 10px; border: 1px dashed #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 10px; text-align: center; }
-  .item-fields { flex: 1; display: flex; flex-direction: column; gap: 12px; }
-  .color-name { font-size: 20px; font-weight: 800; }
-  .hsn { font-size: 10px; color: #888; margin-top: 1px; }
-  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .field-value { font-size: 15px; font-weight: 700; }
+  /* Photo is the sticker the worker has to read on the actual bag — kept as large as the page
+     comfortably allows, for both the single-item hero card and every item in a multi-item order. */
+  .item-section { display: flex; gap: 22px; margin-bottom: 20px; }
+  .item-photo { width: 260px; height: 260px; object-fit: cover; border-radius: 12px; border: 1px solid #e0e0e0; flex-shrink: 0; }
+  .item-photo-placeholder { width: 260px; height: 260px; border-radius: 12px; border: 1px dashed #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 11px; text-align: center; }
+  .item-fields { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+  .item-order-tag { font-size: 11px; font-weight: 700; color: #888; font-family: 'Courier New', monospace; margin-bottom: 4px; }
+  .color-name { font-size: 24px; font-weight: 800; }
+  .hsn { font-size: 11px; color: #888; margin-top: 2px; }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .field-value { font-size: 17px; font-weight: 700; }
   .field-value.mono { font-family: 'Courier New', monospace; }
+  .field-value.bags-value { font-size: 22px; color: #059669; }
   .bags-box { border: 2px solid #1a1a1a; border-radius: 10px; padding: 16px 20px; text-align: center; margin-bottom: 20px; }
   .bags-box .num { font-size: 44px; font-weight: 800; line-height: 1; }
   .bags-box .lbl { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 6px; font-weight: 700; }
-  .items-list { margin-bottom: 20px; }
-  .item-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #eee; }
-  .item-row:last-child { border-bottom: none; }
-  .item-photo-sm { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid #e0e0e0; flex-shrink: 0; }
-  .item-photo-sm-placeholder { width: 60px; height: 60px; border-radius: 8px; border: 1px dashed #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 8px; text-align: center; }
-  .item-row-fields { flex: 1; min-width: 0; }
-  .item-row-name { font-size: 15px; font-weight: 800; }
-  .item-row-meta { font-size: 10px; color: #888; margin-top: 3px; }
-  .item-row-bags { text-align: right; flex-shrink: 0; }
-  .item-row-bags .num { font-size: 24px; font-weight: 800; line-height: 1; }
-  .item-row-bags .lbl { font-size: 8px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+  .items-list .item-section { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 2px dashed #ddd; }
+  .items-list .item-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
   .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
   @media print {
     body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -353,7 +343,12 @@ async function renderGroupOrderJpeg(orders: DispatchOrder[]): Promise<string> {
   const PAD = 48
   const HEADER_H = 130
   const DELIVER_H = 34 + 38 + 12
-  const ROW_H = 96
+  // Photo is the sticker the worker has to read on the actual bag — kept exactly as large as the
+  // single-item card's (see PHOTO_SIZE in renderSingleOrderJpeg above) no matter how many items
+  // are in the order, rather than shrinking it to fit more rows on screen.
+  const PHOTO_SIZE = 240
+  const ROW_GAP = 40
+  const ROW_H = PHOTO_SIZE + ROW_GAP
   const FOOTER_H = 70
   const cardH = HEADER_H + 50 + DELIVER_H + orders.length * ROW_H + FOOTER_H
 
@@ -394,7 +389,6 @@ async function renderGroupOrderJpeg(orders: DispatchOrder[]): Promise<string> {
   ctx.fillText(truncateText(ctx, orders[0].customer_name, CARD_W - PAD * 2), PAD, y)
   y += 50
 
-  const PHOTO_SIZE = 64
   for (const o of orders) {
     if (o.item_image) {
       try {
@@ -403,7 +397,7 @@ async function renderGroupOrderJpeg(orders: DispatchOrder[]): Promise<string> {
         const sx = (img.width - side) / 2
         const sy = (img.height - side) / 2
         ctx.save()
-        const r = 10
+        const r = 14
         ctx.beginPath()
         ctx.moveTo(PAD + r, y)
         ctx.arcTo(PAD + PHOTO_SIZE, y, PAD + PHOTO_SIZE, y + PHOTO_SIZE, r)
@@ -419,39 +413,57 @@ async function renderGroupOrderJpeg(orders: DispatchOrder[]): Promise<string> {
       }
     } else {
       ctx.strokeStyle = '#cccccc'
-      ctx.setLineDash([4, 4])
+      ctx.setLineDash([6, 6])
       ctx.strokeRect(PAD, y, PHOTO_SIZE, PHOTO_SIZE)
       ctx.setLineDash([])
+      ctx.fillStyle = '#aaaaaa'
+      ctx.font = '14px Arial, sans-serif'
+      ctx.fillText('No photo', PAD + PHOTO_SIZE / 2 - 30, y + PHOTO_SIZE / 2)
     }
 
-    const textX = PAD + PHOTO_SIZE + 20
-    const bagsColW = 110
-    const textWidth = CARD_W - PAD - bagsColW - textX
-    ctx.fillStyle = '#1a1a1a'
-    ctx.font = 'bold 18px Arial, sans-serif'
-    ctx.fillText(truncateText(ctx, o.color_name, textWidth), textX, y + 26)
+    const textX = PAD + PHOTO_SIZE + 28
+    const textWidth = CARD_W - PAD - textX
+    let fy = y + 4
+
     ctx.fillStyle = '#888888'
-    ctx.font = '11px Arial, sans-serif'
-    const meta = `DIS-${o.id} · ${o.batch_number} · ${o.warehouse_name} · ${o.packing_size}`
-    ctx.fillText(truncateText(ctx, meta, textWidth), textX, y + 46)
+    ctx.font = 'bold 13px "Courier New", monospace'
+    ctx.fillText(`DIS-${o.id}`, textX, fy + 12)
+    fy += 32
 
     ctx.fillStyle = '#1a1a1a'
-    ctx.font = 'bold 26px Arial, sans-serif'
-    const numText = String(o.bags_dispatched)
-    ctx.fillText(numText, CARD_W - PAD - ctx.measureText(numText).width, y + 30)
+    ctx.font = 'bold 28px Arial, sans-serif'
+    ctx.fillText(truncateText(ctx, o.color_name, textWidth), textX, fy + 20)
+    fy += 38
+
     ctx.fillStyle = '#888888'
-    ctx.font = 'bold 9px Arial, sans-serif'
-    const lblText = 'BAGS'
-    ctx.fillText(lblText, CARD_W - PAD - ctx.measureText(lblText).width, y + 44)
+    ctx.font = '13px Arial, sans-serif'
+    ctx.fillText(`HSN: ${o.hsn_code}`, textX, fy + 10)
+    fy += 44
+
+    const colW = textWidth / 2
+    const drawField = (col: number, row: number, label: string, value: string, accent: boolean) => {
+      const fx = textX + col * colW
+      const fyy = fy + row * 64
+      ctx.fillStyle = '#888888'
+      ctx.font = 'bold 10px Arial, sans-serif'
+      ctx.fillText(label.toUpperCase(), fx, fyy)
+      ctx.fillStyle = accent ? '#059669' : '#1a1a1a'
+      ctx.font = `bold ${accent ? 24 : 17}px Arial, sans-serif`
+      ctx.fillText(truncateText(ctx, value, colW - 16), fx, fyy + (accent ? 26 : 20))
+    }
+    drawField(0, 0, 'Batch Number', o.batch_number, false)
+    drawField(1, 0, 'Warehouse', o.warehouse_name, false)
+    drawField(0, 1, 'Pack Size', o.packing_size, false)
+    drawField(1, 1, 'Bags', String(o.bags_dispatched), true)
 
     y += PHOTO_SIZE
     ctx.strokeStyle = '#eeeeee'
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(PAD, y + 16)
-    ctx.lineTo(CARD_W - PAD, y + 16)
+    ctx.moveTo(PAD, y + ROW_GAP / 2)
+    ctx.lineTo(CARD_W - PAD, y + ROW_GAP / 2)
     ctx.stroke()
-    y += ROW_H - PHOTO_SIZE
+    y += ROW_GAP
   }
 
   y += 10
