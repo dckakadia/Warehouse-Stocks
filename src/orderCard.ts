@@ -16,51 +16,70 @@ export function buildOrderCardHtml(orders: DispatchOrder[]): string {
   const first = orders[0]
   const orderIdText = orders.length === 1 ? `DIS-${first.id}` : orders.map(o => `DIS-${o.id}`).join(', ')
 
-  // Single item keeps the original hero layout (big photo, big "Bags to Pick" figure). A real
-  // multi-item order (from a cart submission, see order_group in server/db.ts) repeats that same
-  // large-photo item-section per item instead of a compact row — the photo is a sticker the worker
-  // has to read, so it needs to stay just as large no matter how many items are in the order.
-  const itemBlock = (o: DispatchOrder, showOrderTag: boolean) => `
-  <div class="item-section">
+  // Single item keeps the original hero layout (big photo, big "Bags to Pick" figure) — one item
+  // always fits one A4 print page at full size. A multi-item order MUST still fit on a single
+  // page (a worker shouldn't have to flip pages mid-pick), so the photo — and the gap between
+  // items — shrinks as more items are added. Calibrated against a real overflowing 4-item PDF the
+  // user hit at the old fixed 260px size (3 items fit, 4th spilled to page 2); this formula puts a
+  // 4-item order at roughly 90% of a page's height with meaningful margin to spare. Still
+  // meaningfully larger than the old fixed compact-row thumbnails at any realistic cart size.
+  const n = orders.length
+  const photoPx = n <= 1 ? 260 : Math.max(85, Math.min(200, Math.round(560 / n)))
+  const gapPx = n <= 1 ? 20 : Math.max(8, Math.min(20, Math.round(56 / n)))
+  const nameFontPx = n <= 4 ? 24 : n <= 6 ? 20 : 17
+  // The 2x2 field grid (Batch/Warehouse/Pack Size/Bags) is nearly as tall as a shrunk photo once
+  // n grows — a group item's row height stops being photo-bound and becomes text-bound. Flattening
+  // it to a single row for group items (never for the single-item hero card, which keeps its
+  // original 2x2 look) removes a whole text row's worth of height from every item, not just the
+  // large-n ones.
+  const fieldValueFontPx = n <= 4 ? 17 : n <= 6 ? 15 : 13
+  const fieldsGapPx = n <= 4 ? 14 : 10
+
+  const itemBlock = (o: DispatchOrder, isGroup: boolean, isLast: boolean) => {
+    const sizeStyle = isGroup ? ` style="width:${photoPx}px;height:${photoPx}px"` : ''
+    const spacing = isLast ? 0 : gapPx
+    return `
+  <div class="item-section"${isGroup ? ` style="gap:${Math.min(22, gapPx + 6)}px;margin-bottom:${spacing}px;padding-bottom:${spacing}px"` : ''}>
     ${o.item_image
-      ? `<img class="item-photo" src="${o.item_image}" alt="${o.color_name}">`
-      : `<div class="item-photo-placeholder">No photo</div>`}
-    <div class="item-fields">
+      ? `<img class="item-photo" src="${o.item_image}" alt="${o.color_name}"${sizeStyle}>`
+      : `<div class="item-photo-placeholder"${sizeStyle}>No photo</div>`}
+    <div class="item-fields"${isGroup ? ` style="gap:${fieldsGapPx}px"` : ''}>
       <div>
-        ${showOrderTag ? `<div class="item-order-tag">DIS-${o.id}</div>` : ''}
-        <div class="color-name">${o.color_name}</div>
+        ${isGroup ? `<div class="item-order-tag">DIS-${o.id}</div>` : ''}
+        <div class="color-name"${isGroup ? ` style="font-size:${nameFontPx}px"` : ''}>${o.color_name}</div>
         <div class="hsn">HSN: ${o.hsn_code}</div>
       </div>
-      <div class="field-grid">
+      <div class="field-grid"${isGroup ? ` style="grid-template-columns:repeat(4,1fr);gap:10px"` : ''}>
         <div>
           <div class="field-label">Batch Number</div>
-          <div class="field-value mono">${o.batch_number}</div>
+          <div class="field-value mono"${isGroup ? ` style="font-size:${fieldValueFontPx}px"` : ''}>${o.batch_number}</div>
         </div>
         <div>
           <div class="field-label">Warehouse</div>
-          <div class="field-value">${o.warehouse_name}</div>
+          <div class="field-value"${isGroup ? ` style="font-size:${fieldValueFontPx}px"` : ''}>${o.warehouse_name}</div>
         </div>
         <div>
           <div class="field-label">Pack Size</div>
-          <div class="field-value">${o.packing_size}</div>
+          <div class="field-value"${isGroup ? ` style="font-size:${fieldValueFontPx}px"` : ''}>${o.packing_size}</div>
         </div>
-        ${showOrderTag ? `
+        ${isGroup ? `
         <div>
           <div class="field-label">Bags</div>
-          <div class="field-value bags-value">${o.bags_dispatched}</div>
+          <div class="field-value bags-value" style="font-size:${fieldValueFontPx + 4}px">${o.bags_dispatched}</div>
         </div>` : ''}
       </div>
     </div>
   </div>`
+  }
 
-  const itemContent = orders.length === 1 ? `
-  ${itemBlock(first, false)}
+  const itemContent = n === 1 ? `
+  ${itemBlock(first, false, true)}
   <div class="bags-box">
     <div class="num">${first.bags_dispatched}</div>
     <div class="lbl">Bags to Pick</div>
   </div>` : `
   <div class="items-list">
-    ${orders.map(o => itemBlock(o, true)).join('')}
+    ${orders.map((o, i) => itemBlock(o, true, i === orders.length - 1)).join('')}
   </div>`
 
   return `<!DOCTYPE html>
