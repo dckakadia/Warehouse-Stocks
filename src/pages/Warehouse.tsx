@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as api from '../api'
 import type { DispatchOrder, ColorRow, Warehouse as WarehouseType, BatchRow, InwardBatch } from '../api'
 import Ic from '../icons'
-import { todayISO, compressImage, whColor } from '../utils'
+import { todayISO, whColor } from '../utils'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBlock from '../components/ErrorBlock'
 import Skeleton from '../components/Skeleton'
 import Lightbox from '../components/Lightbox'
+import ImageCropModal from '../components/ImageCropModal'
+import { printOrderCard, renderOrderCardJpeg, shareOrderCard } from '../orderCard'
 
 interface Props {
   refreshSig: number
@@ -37,6 +39,8 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const [confirmPickId, setConfirmPickId] = useState<number | null>(null)
   const { toasts, add: toast } = useToast()
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
+  const [pendingCrop, setPendingCrop] = useState<{ file: File; onDone: (uri: string) => void } | null>(null)
+  const [sharingId, setSharingId] = useState<number | null>(null)
 
   // Inward form
   const [iColor, setIColor] = useState('')
@@ -54,6 +58,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const galleryRef = useRef<HTMLInputElement>(null)
   const cameraRef  = useRef<HTMLInputElement>(null)
   const hasLoadedBootstrapRef = useRef(false)
+  const hasLoadedRecordsRef = useRef(false)
 
   // Transfer form
   const [tFromWid, setTFromWid] = useState<number | ''>('')
@@ -61,6 +66,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const [tColor, setTColor] = useState('')
   const [tBatches, setTBatches] = useState<BatchRow[]>([])
   const [tInvId, setTInvId] = useState<number | null>(null)
+  const tBatchesKeyRef = useRef<string | null>(null)
   const [tBags, setTBags] = useState('')
   const [tLoading, setTLoading] = useState(false)
 
@@ -139,8 +145,14 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   }, [loadBootstrap, refreshSig, refreshEntity])
 
   useEffect(() => {
-    if (tab === 'records' && isManager) loadInwardBatches()
-  }, [tab, isManager, loadInwardBatches])
+    if (tab !== 'records' || !isManager) return
+    // Same reasoning as the bootstrap load above — gate on this tab's own "have I loaded yet"
+    // flag, not just a tab switch, so a relevant WS broadcast (another device editing/deleting a
+    // batch) refreshes Records while a manager is already parked on it, not just on next tab entry.
+    if (hasLoadedRecordsRef.current && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
+    loadInwardBatches()
+    hasLoadedRecordsRef.current = true
+  }, [tab, isManager, loadInwardBatches, refreshSig, refreshEntity])
 
   const onColorChange = (colorName: string) => {
     setIColor(colorName)
@@ -151,22 +163,31 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
     setIImageIsDefault(!!item?.item_image)
   }
 
-  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const compressed = await compressImage(file)
-    setIImage(compressed)
-    setIImageIsDefault(false)
+    setPendingCrop({ file, onDone: uri => { setIImage(uri); setIImageIsDefault(false) } })
     e.target.value = ''
   }
 
   useEffect(() => {
-    if (!tFromWid || !tColor) { setTBatches([]); setTInvId(null); return }
+    if (!tFromWid || !tColor) { setTBatches([]); setTInvId(null); tBatchesKeyRef.current = null; return }
+    // Refetch whenever the user picks a new warehouse/color (always), or whenever a relevant WS
+    // broadcast arrives while the same selection is still active (another device may have changed
+    // this exact warehouse/color's stock) — gated on a per-selection key rather than the shared
+    // refreshSig counter so a brand new selection always fetches regardless of the last broadcast.
+    const key = `${tFromWid}-${tColor}`
+    const isNewSelection = tBatchesKeyRef.current !== key
+    if (!isNewSelection && refreshEntity !== 'all' && !RELEVANT_ENTITIES.has(refreshEntity)) return
+    let cancelled = false
     api.getBatches(tColor, tFromWid as number).then(rows => {
+      if (cancelled) return
       setTBatches(rows)
       setTInvId(null)
+      tBatchesKeyRef.current = key
     })
-  }, [tFromWid, tColor])
+    return () => { cancelled = true }
+  }, [tFromWid, tColor, refreshSig, refreshEntity])
 
   const confirmPick = async (id: number) => {
     try {
@@ -176,6 +197,17 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Error', 'err')
     }
+  }
+
+  const shareOrder = async (o: DispatchOrder) => {
+    setSharingId(o.id)
+    try {
+      const jpeg = await renderOrderCardJpeg(o)
+      await shareOrderCard(jpeg, `dispatch-order-DIS-${o.id}`)
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to share order', 'err')
+    }
+    setSharingId(null)
   }
 
   const openEditBatch = (b: InwardBatch) => {
@@ -199,11 +231,10 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
     })))
   }
 
-  const handleEditImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleEditImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const compressed = await compressImage(file)
-    setEditBatchForm(f => ({ ...f, batch_image: compressed }))
+    setPendingCrop({ file, onDone: uri => setEditBatchForm(f => ({ ...f, batch_image: uri })) })
     e.target.value = ''
   }
 
@@ -429,12 +460,22 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
                 </div>
                 <div className="flex items-center justify-between pt-2.5 border-t border-gray-700">
                   <span className="text-xs text-gray-400">Customer: <span className="text-gray-200">{o.customer_name}</span></span>
-                  {canEdit && (
-                    <button onClick={() => setConfirmPickId(o.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium transition-colors">
-                      <Ic.Check /> Confirm Picked
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => printOrderCard(o)} title="Print / Save as PDF"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+                      <Ic.Print />
                     </button>
-                  )}
+                    <button onClick={() => shareOrder(o)} disabled={sharingId === o.id} title="Share as JPG"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+                      <Ic.Share />
+                    </button>
+                    {canEdit && (
+                      <button onClick={() => setConfirmPickId(o.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium transition-colors">
+                        <Ic.Check /> Confirm Picked
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -899,6 +940,14 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
 
       {lightbox && (
         <Lightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
+      )}
+
+      {pendingCrop && (
+        <ImageCropModal
+          file={pendingCrop.file}
+          onCancel={() => setPendingCrop(null)}
+          onCropped={uri => { pendingCrop.onDone(uri); setPendingCrop(null) }}
+        />
       )}
     </main>
   )

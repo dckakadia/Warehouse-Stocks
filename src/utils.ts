@@ -8,7 +8,13 @@ export const W_COLORS = [
 export const whColor = (wid: number) => W_COLORS[(wid - 1) % W_COLORS.length]
 
 export function todayISO() {
-  return new Date().toISOString().split('T')[0]
+  // Local calendar date, not UTC — toISOString() converts to UTC first, which returns yesterday's
+  // date for part of the day in any timezone ahead of UTC (e.g. IST, UTC+5:30, until 05:29 local).
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function parseKgPerBag(ps: string): number {
@@ -109,23 +115,5 @@ export function printHtmlDocument(html: string) {
     doc.open()
     doc.write(html)
     doc.close()
-  })
-}
-
-export async function compressImage(file: File): Promise<string> {
-  return new Promise(resolve => {
-    const url = URL.createObjectURL(file)
-    const img = new Image()
-    img.onload = () => {
-      const MAX = 600
-      const scale = Math.min(MAX / img.width, MAX / img.height, 1)
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(img.width * scale)
-      canvas.height = Math.round(img.height * scale)
-      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL('image/jpeg', 0.78))
-    }
-    img.src = url
   })
 }

@@ -12,8 +12,21 @@ interface Props {
   onCreated: () => void
 }
 
+interface CartLine {
+  key: string
+  color_name: string
+  item_image: string | null
+  batch_id: number
+  batch_number: string
+  warehouse_id: number
+  warehouse_name: string
+  packing_size: string
+  bags_dispatched: number
+  quantity_in_stock: number
+}
+
 export default function CreateDispatchModal({ customers, colors, onClose, onCreated }: Props) {
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [custSearch, setCustSearch] = useState('')
   const [selCustomer, setSelCustomer] = useState<Customer | null>(null)
   const [selColor, setSelColor] = useState<ColorRow | null>(null)
@@ -22,6 +35,7 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
   const [selPackSize, setSelPackSize] = useState<string>('')
   const [selInvId, setSelInvId] = useState<number | null>(null)
   const [bags, setBags] = useState('')
+  const [cart, setCart] = useState<CartLine[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
@@ -50,27 +64,73 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
     setStep(3)
   }
 
+  const packSizes = useMemo(() => [...new Set(batches.map(b => b.packing_size))], [batches])
+
   const filteredBatches = useMemo(() =>
     batches.filter(b => b.packing_size === selPackSize),
     [batches, selPackSize])
 
   const selBatch = useMemo(() => batches.find(b => b.inv_id === selInvId), [batches, selInvId])
 
-  const submit = async (e: React.FormEvent) => {
+  const cartLineKey = (batchId: number, warehouseId: number, packingSize: string) => `${batchId}-${warehouseId}-${packingSize}`
+
+  const alreadyInCartFor = (batchId: number, warehouseId: number, packingSize: string) =>
+    cart.filter(l => l.key === cartLineKey(batchId, warehouseId, packingSize)).reduce((sum, l) => sum + l.bags_dispatched, 0)
+
+  const addToCart = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selCustomer || !selInvId || !bags) return
+    if (!selColor || !selBatch || !bags) return
     const n = parseInt(bags)
     if (!n || n <= 0) { setError('Enter a valid quantity'); return }
-    if (selBatch && n > selBatch.quantity_in_stock) { setError(`Max ${selBatch.quantity_in_stock} bags available`); return }
+    const key = cartLineKey(selBatch.id, selBatch.warehouse_id, selPackSize)
+    const already = alreadyInCartFor(selBatch.id, selBatch.warehouse_id, selPackSize)
+    if (already + n > selBatch.quantity_in_stock) {
+      setError(`Max ${selBatch.quantity_in_stock - already} more bags available${already > 0 ? ` (${already} already added)` : ''}`)
+      return
+    }
+    setCart(prev => {
+      const idx = prev.findIndex(l => l.key === key)
+      if (idx >= 0) {
+        const copy = [...prev]
+        copy[idx] = { ...copy[idx], bags_dispatched: copy[idx].bags_dispatched + n }
+        return copy
+      }
+      return [...prev, {
+        key,
+        color_name: selColor.color_name,
+        item_image: selColor.item_image,
+        batch_id: selBatch.id,
+        batch_number: selBatch.batch_number,
+        warehouse_id: selBatch.warehouse_id,
+        warehouse_name: selBatch.warehouse_name,
+        packing_size: selPackSize,
+        bags_dispatched: n,
+        quantity_in_stock: selBatch.quantity_in_stock,
+      }]
+    })
+    setSelInvId(null)
+    setBags('')
+    setError('')
+    setStep(2)
+  }
+
+  const removeFromCart = (key: string) => setCart(prev => prev.filter(l => l.key !== key))
+
+  const totalBags = cart.reduce((sum, l) => sum + l.bags_dispatched, 0)
+
+  const submitCart = async () => {
+    if (!selCustomer || cart.length === 0) return
     setLoading(true)
     setError('')
     try {
-      await api.createDispatchOrder({
+      await api.createBulkDispatchOrders({
         customer_id: selCustomer.id,
-        batch_id: selBatch!.id,
-        warehouse_id: selBatch!.warehouse_id,
-        packing_size: selPackSize,
-        bags_dispatched: n,
+        lines: cart.map(l => ({
+          batch_id: l.batch_id,
+          warehouse_id: l.warehouse_id,
+          packing_size: l.packing_size,
+          bags_dispatched: l.bags_dispatched,
+        })),
       })
       onCreated()
       onClose()
@@ -80,7 +140,7 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
     setLoading(false)
   }
 
-  const progress = step === 1 ? 'w-1/3' : step === 2 ? 'w-2/3' : 'w-full'
+  const progress = step === 1 ? 'w-1/4' : step === 2 ? 'w-2/4' : step === 3 ? 'w-3/4' : 'w-full'
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -124,7 +184,12 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
 
           {step === 2 && (
             <>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Select Color / Item</p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Select Color / Item</p>
+                {cart.length > 0 && (
+                  <span className="text-xs text-gray-500">{cart.length} line{cart.length > 1 ? 's' : ''} added</span>
+                )}
+              </div>
               <div className="space-y-1.5">
                 {colors.length === 0
                   ? <p className="text-sm text-gray-500 italic text-center py-6">No items with available stock.</p>
@@ -155,7 +220,7 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
           )}
 
           {step === 3 && (
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={addToCart} className="space-y-4">
               <div className="bg-gray-800/60 rounded-lg p-3 text-xs space-y-1 border border-gray-700">
                 <div className="flex gap-2"><span className="text-gray-500">Customer:</span><span className="text-white font-medium">{selCustomer?.customer_name}</span></div>
                 <div className="flex gap-2"><span className="text-gray-500">Color:</span><span className="text-white font-medium">{selColor?.color_name}</span></div>
@@ -175,12 +240,12 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
 
               {!loading && (
                 <>
-                  {[...new Set(batches.map(b => b.packing_size))].length > 0 && (
+                  {packSizes.length > 0 && (
                     <div>
                       <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Pack Size</label>
                       <div className="flex flex-wrap gap-2">
-                        {[...new Set(batches.map(b => b.packing_size))].map(ps => (
-                          <button key={ps} type="button" onClick={() => { setSelPackSize(ps); setSelInvId(null) }}
+                        {packSizes.map(ps => (
+                          <button key={ps} type="button" onClick={() => { setSelPackSize(ps); setSelInvId(null); setBags('') }}
                             className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${selPackSize === ps ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}>
                             {ps}
                           </button>
@@ -219,9 +284,9 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
                   <div>
                     <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                       Bags <span className="text-red-400">*</span>
-                      {selBatch && <span className="ml-2 text-gray-500 normal-case font-normal">(max {selBatch.quantity_in_stock})</span>}
+                      {selBatch && <span className="ml-2 text-gray-500 normal-case font-normal">(max {selBatch.quantity_in_stock - alreadyInCartFor(selBatch.id, selBatch.warehouse_id, selPackSize)})</span>}
                     </label>
-                    <input type="number" min="1" max={selBatch?.quantity_in_stock} value={bags} onChange={e => setBags(e.target.value)} placeholder="Enter quantity"
+                    <input type="number" min="1" max={selBatch ? selBatch.quantity_in_stock - alreadyInCartFor(selBatch.id, selBatch.warehouse_id, selPackSize) : undefined} value={bags} onChange={e => setBags(e.target.value)} placeholder="Enter quantity"
                       className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
                   </div>
 
@@ -235,14 +300,83 @@ export default function CreateDispatchModal({ customers, colors, onClose, onCrea
                     <button type="button" onClick={() => setStep(2)} className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors">Back</button>
                     <button type="submit" disabled={loading || !selInvId || !bags}
                       className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors">
-                      {loading ? 'Creating…' : 'Create Order'}
+                      Add to Order
                     </button>
                   </div>
                 </>
               )}
             </form>
           )}
+
+          {step === 4 && (
+            <>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Review Order</p>
+              <div className="bg-gray-800/60 rounded-lg p-3 text-xs mb-3 border border-gray-700">
+                <div className="flex gap-2"><span className="text-gray-500">Customer:</span><span className="text-white font-medium">{selCustomer?.customer_name}</span></div>
+              </div>
+
+              {cart.length === 0
+                ? <p className="text-sm text-gray-500 italic text-center py-6">No items added yet.</p>
+                : (
+                  <div className="space-y-1.5 mb-3">
+                    {cart.map(l => (
+                      <div key={l.key} className="flex items-center gap-3 px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg">
+                        {l.item_image ? (
+                          <button type="button"
+                            onClick={() => setLightbox({ src: l.item_image!, title: l.color_name })}
+                            className="flex-shrink-0 rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <img src={l.item_image} alt={l.color_name} className="w-9 h-9 object-cover rounded-lg border border-gray-700 hover:border-blue-500 transition-colors" />
+                          </button>
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-gray-700 flex items-center justify-center flex-shrink-0 text-gray-500"><Ic.Image /></div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white truncate">{l.color_name}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <span className="text-xs font-mono text-gray-400">{l.batch_number}</span>
+                            <span className={`text-xs border px-1.5 py-0.5 rounded ${whColor(l.warehouse_id)}`}>{l.warehouse_name}</span>
+                            <span className="text-xs text-gray-500">{l.packing_size}</span>
+                          </div>
+                        </div>
+                        <span className="text-sm font-bold text-white flex-shrink-0">{l.bags_dispatched} bags</span>
+                        <button type="button" onClick={() => removeFromCart(l.key)} className="text-gray-500 hover:text-red-400 flex-shrink-0">
+                          <Ic.Trash />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="flex justify-between px-1 pt-1 text-xs text-gray-400">
+                      <span>{cart.length} line{cart.length > 1 ? 's' : ''}</span>
+                      <span className="font-semibold text-white">{totalBags} bags total</span>
+                    </div>
+                  </div>
+                )}
+
+              {error && (
+                <div className="flex items-center gap-2 text-red-400 text-xs bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2 mb-3">
+                  <Ic.Warning /> {error}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setStep(2)} className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5">
+                  <Ic.Plus /> Add another item
+                </button>
+                <button type="button" onClick={submitCart} disabled={loading || cart.length === 0}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors">
+                  {loading ? 'Creating…' : `Create Order (${cart.length})`}
+                </button>
+              </div>
+            </>
+          )}
         </div>
+
+        {cart.length > 0 && (step === 2 || step === 3) && (
+          <button onClick={() => setStep(4)}
+            className="flex-shrink-0 flex items-center justify-between px-5 py-3 bg-blue-600/20 border-t border-blue-700/40 text-blue-300 hover:bg-blue-600/30 transition-colors">
+            <span className="text-sm font-medium">{cart.length} line{cart.length > 1 ? 's' : ''} · {totalBags} bags</span>
+            <span className="text-sm font-medium flex items-center gap-1">Review Order <Ic.ChevronRight /></span>
+          </button>
+        )}
       </div>
 
       {lightbox && (

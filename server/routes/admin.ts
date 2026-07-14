@@ -209,24 +209,25 @@ router.put('/ledger/orders/:id', (req, res) => {
       const isActive  = newStatus === 'Pending' || newStatus === 'Picked'
 
       // Inventory reconciliation
-      if (wasActive && isActive) {
-        // Both active: adjust for bag count delta
-        const delta = oldBags - newBags
-        if (delta !== 0) {
-          db.prepare(
-            'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
-          ).run(delta, order.batch_id, order.warehouse_id, order.packing_size)
+      if (wasActive || isActive) {
+        const inv = db.prepare(
+          'SELECT id FROM inventory WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+        ).get(order.batch_id, order.warehouse_id, order.packing_size) as { id: number } | undefined
+        if (!inv) throw new Error('Inventory line no longer exists — cannot reconcile stock')
+
+        if (wasActive && isActive) {
+          // Both active: adjust for bag count delta
+          const delta = oldBags - newBags
+          if (delta !== 0) {
+            db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE id = ?').run(delta, inv.id)
+          }
+        } else if (wasActive && !isActive) {
+          // Active → Cancelled: restore old bags
+          db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE id = ?').run(oldBags, inv.id)
+        } else if (!wasActive && isActive) {
+          // Cancelled → Active: deduct new bags
+          db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock - ? WHERE id = ?').run(newBags, inv.id)
         }
-      } else if (wasActive && !isActive) {
-        // Active → Cancelled: restore old bags
-        db.prepare(
-          'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
-        ).run(oldBags, order.batch_id, order.warehouse_id, order.packing_size)
-      } else if (!wasActive && isActive) {
-        // Cancelled → Active: deduct new bags
-        db.prepare(
-          'UPDATE inventory SET quantity_in_stock = quantity_in_stock - ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
-        ).run(newBags, order.batch_id, order.warehouse_id, order.packing_size)
       }
 
       // dispatch_logs reconciliation
@@ -260,9 +261,11 @@ router.delete('/ledger/orders/:id', (req, res) => {
       if (!order) throw new Error('Order not found')
 
       if (order.status === 'Pending' || order.status === 'Picked') {
-        db.prepare(
-          'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
-        ).run(order.bags_dispatched, order.batch_id, order.warehouse_id, order.packing_size)
+        const inv = db.prepare(
+          'SELECT id FROM inventory WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+        ).get(order.batch_id, order.warehouse_id, order.packing_size) as { id: number } | undefined
+        if (!inv) throw new Error('Inventory line no longer exists — cannot restore stock')
+        db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE id = ?').run(order.bags_dispatched, inv.id)
       }
       if (order.status === 'Picked') {
         db.prepare('DELETE FROM dispatch_logs WHERE dispatch_order_id = ?').run(id)
@@ -490,18 +493,26 @@ router.put('/inward/batches/:id/full', (req, res) => {
 
       const existingLines = db.prepare('SELECT id, warehouse_id, packing_size FROM inventory WHERE batch_id = ?').all(id) as
         { id: number; warehouse_id: number; packing_size: string }[]
-      const keptIds = new Set(validatedLines.filter(l => l.id != null).map(l => l.id))
 
-      // Remove lines the user dropped from the form — guarded against pending dispatch orders
+      // Remove lines the user dropped from the form, or reassign a kept line to a different
+      // warehouse/pack-size — both orphan any live (Pending/Picked) order still referencing the
+      // line's OLD (batch_id, warehouse_id, packing_size) triple, since dispatch_orders/dispatch_logs
+      // have no FK to inventory.id and instead re-look-up the line by that triple at confirm/cancel/
+      // ledger-edit time (see dispatch.ts's cancel and admin.ts's ledger endpoints). Guarded against
+      // both statuses, not just Pending — a Picked order can still be reconciled later via the
+      // Customer Ledger edit endpoint.
       for (const existing of existingLines) {
-        if (keptIds.has(existing.id)) continue
+        const kept = validatedLines.find(l => l.id === existing.id)
+        const reassigned = kept && (kept.warehouse_id !== existing.warehouse_id || kept.packing_size !== existing.packing_size)
+        if (kept && !reassigned) continue
         const { cnt } = db.prepare(
-          "SELECT COUNT(*) AS cnt FROM dispatch_orders WHERE batch_id=? AND warehouse_id=? AND packing_size=? AND status='Pending'"
+          "SELECT COUNT(*) AS cnt FROM dispatch_orders WHERE batch_id=? AND warehouse_id=? AND packing_size=? AND status IN ('Pending','Picked')"
         ).get(id, existing.warehouse_id, existing.packing_size) as { cnt: number }
         if (cnt > 0) {
-          throw new Error(`Cannot remove ${existing.packing_size} line: ${cnt} pending order(s) use it`)
+          const action = kept ? 'reassign' : 'remove'
+          throw new Error(`Cannot ${action} ${existing.packing_size} line: ${cnt} active order(s) use it`)
         }
-        db.prepare('DELETE FROM inventory WHERE id = ?').run(existing.id)
+        if (!kept) db.prepare('DELETE FROM inventory WHERE id = ?').run(existing.id)
       }
 
       // Update existing lines / insert new ones. Existing lines are reconciled by delta
@@ -645,34 +656,39 @@ router.post('/backup/import', (req, res) => {
   const { data } = req.body as { data: Record<string, Record<string, unknown>[]> }
   if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Invalid backup file' })
 
-  db.transaction(() => {
+  // foreign_keys must be toggled outside the transaction — SQLite documents PRAGMA foreign_keys
+  // as a no-op once a transaction is already open, so setting it from inside db.transaction()
+  // (as this used to) silently didn't do anything.
+  try {
     db.pragma('foreign_keys = OFF')
+    db.transaction(() => {
+      // Delete in reverse dependency order
+      for (const table of [...EXPORT_TABLES].reverse()) {
+        if (data[table] !== undefined) db.prepare(`DELETE FROM ${table}`).run()
+      }
 
-    // Delete in reverse dependency order
-    for (const table of [...EXPORT_TABLES].reverse()) {
-      if (data[table] !== undefined) db.prepare(`DELETE FROM ${table}`).run()
-    }
+      // Reset autoincrement counters
+      db.prepare("DELETE FROM sqlite_sequence WHERE name IN (" +
+        EXPORT_TABLES.map(() => '?').join(',') + ")"
+      ).run(...EXPORT_TABLES)
 
-    // Reset autoincrement counters
-    db.prepare("DELETE FROM sqlite_sequence WHERE name IN (" +
-      EXPORT_TABLES.map(() => '?').join(',') + ")"
-    ).run(...EXPORT_TABLES)
-
-    // Insert in dependency order
-    for (const table of EXPORT_TABLES) {
-      const rows = data[table]
-      if (!rows?.length) continue
-      const cols = Object.keys(rows[0])
-      const stmt = db.prepare(
-        `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
-      )
-      for (const row of rows) stmt.run(cols.map(c => row[c]))
-    }
-
+      // Insert in dependency order
+      for (const table of EXPORT_TABLES) {
+        const rows = data[table]
+        if (!rows?.length) continue
+        const cols = Object.keys(rows[0])
+        const stmt = db.prepare(
+          `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+        )
+        for (const row of rows) stmt.run(cols.map(c => row[c]))
+      }
+    })()
+    return res.json({ success: true, tables: Object.keys(data) })
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Backup import failed' })
+  } finally {
     db.pragma('foreign_keys = ON')
-  })()
-
-  return res.json({ success: true, tables: Object.keys(data) })
+  }
 })
 
 export default router

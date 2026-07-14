@@ -108,6 +108,33 @@ describe('PUT /inward/batches/:id/full', () => {
     expect(row).toBeDefined() // line was not removed
   })
 
+  it('refuses to reassign a kept line to a different warehouse while a pending order still references it', async () => {
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'BATCH-REASSIGN', '2026-01-01')"
+    ).run(itemId).lastInsertRowid as number
+    const lineId = db.prepare(
+      'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock) VALUES (?, ?, ?, ?)'
+    ).run(batchId, warehouseA, '20kg', 30).lastInsertRowid as number
+    const customerId = db.prepare("INSERT INTO customers (customer_name) VALUES ('Reassign Co')").run().lastInsertRowid as number
+    db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status) VALUES (?, ?, ?, ?, ?, 'Pending')"
+    ).run(customerId, batchId, warehouseA, '20kg', 5)
+
+    // Keeps the line's id but moves it to warehouseB — would silently orphan the pending order's
+    // stock reconciliation (see regression this guards against in server/routes/admin.ts)
+    const res = await fetch(`${server.url}/inward/batches/${batchId}/full`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        color_name: 'Emerald Green', batch_number: 'BATCH-REASSIGN', import_date: '2026-01-01', notes: '', supplier_id: null,
+        lines: [{ id: lineId, warehouse_id: warehouseB, packing_size: '20kg', quantity_in_stock: 30 }],
+      }),
+    })
+    expect(res.status).toBe(409)
+    const row = db.prepare('SELECT warehouse_id FROM inventory WHERE id = ?').get(lineId) as { warehouse_id: number }
+    expect(row.warehouse_id).toBe(warehouseA) // not reassigned
+  })
+
   it('does not clobber a dispatch that happened while the edit form was open', async () => {
     const batchId = db.prepare(
       "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'BATCH-F', '2026-01-01')"

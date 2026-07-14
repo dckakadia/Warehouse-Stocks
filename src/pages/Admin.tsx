@@ -595,7 +595,7 @@ export default function AdminPage() {
           {[
             { role: 'Manager', color: ROLE_COLORS.manager, desc: 'Full operational access — View/Edit/Delete rights and Dashboard/Warehouse/Master/Report page access are both configurable per manager.' },
             { role: 'Helper',  color: ROLE_COLORS.helper,  desc: 'Support role — typically assigned View-only access; edit/delete rights can be enabled if needed.' },
-            { role: 'Admin',   color: ROLE_COLORS.admin,   desc: 'Same full access as Manager — a separate role label for user management staff, with identically configurable rights and page access.' },
+            { role: 'Admin',   color: ROLE_COLORS.admin,   desc: 'Same configurable page/rights access as Manager, plus the only role that can see this Admin panel itself (Users + Backup).' },
           ].map(({ role, color, desc }) => (
             <div key={role} className="flex items-start gap-3 p-3 bg-gray-800/40 rounded-lg border border-gray-800">
               <span className={`text-xs font-semibold px-2 py-0.5 rounded border mt-0.5 flex-shrink-0 ${color}`}>{role}</span>

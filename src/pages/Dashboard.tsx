@@ -77,7 +77,8 @@ export default function Dashboard({ refreshSig, refreshEntity, onCreateDispatch,
   const toggle = (colorName: string) =>
     setExpanded(prev => {
       const next = new Set(prev)
-      next.has(colorName) ? next.delete(colorName) : next.add(colorName)
+      if (next.has(colorName)) next.delete(colorName)
+      else next.add(colorName)
       return next
     })
 

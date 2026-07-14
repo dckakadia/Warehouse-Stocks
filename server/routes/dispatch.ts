@@ -81,6 +81,81 @@ router.post('/', requireEdit, (req, res) => {
   }
 })
 
+// POST /api/dispatch/bulk — requires can_edit
+// Creates several dispatch_orders rows (one customer, multiple batch/warehouse/pack-size/bags
+// lines) atomically — either all lines succeed or none are committed, so a mid-cart stock
+// shortfall never leaves a partial order behind.
+router.post('/bulk', requireEdit, (req, res) => {
+  let customer_id: number
+  try {
+    customer_id = posInt(req.body.customer_id, 'customer_id')
+  } catch (e: unknown) {
+    return res.status(400).json({ error: (e as Error).message })
+  }
+
+  const { lines } = req.body as { lines?: unknown }
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return res.status(400).json({ error: 'At least one line is required' })
+  }
+
+  const validatedLines: { batch_id: number; warehouse_id: number; packing_size: string; bags_dispatched: number }[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i] as Record<string, unknown>
+    try {
+      const batch_id = posInt(l.batch_id, `Line ${i + 1}: batch_id`)
+      const warehouse_id = posInt(l.warehouse_id, `Line ${i + 1}: warehouse_id`)
+      const bags_dispatched = posInt(l.bags_dispatched, `Line ${i + 1}: bags_dispatched`)
+      const packing_size = typeof l.packing_size === 'string' ? l.packing_size.trim() : ''
+      if (!packing_size) return res.status(400).json({ error: `Line ${i + 1}: packing_size required` })
+      validatedLines.push({ batch_id, warehouse_id, packing_size, bags_dispatched })
+    } catch (e: unknown) {
+      return res.status(400).json({ error: (e as Error).message })
+    }
+  }
+
+  const createOrders = db.transaction(() => {
+    const ids: (number | bigint)[] = []
+    for (let i = 0; i < validatedLines.length; i++) {
+      const { batch_id, warehouse_id, packing_size, bags_dispatched } = validatedLines[i]
+      const inv = db.prepare(
+        'SELECT id, quantity_in_stock FROM inventory WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+      ).get(batch_id, warehouse_id, packing_size) as { id: number; quantity_in_stock: number } | undefined
+      if (!inv) throw new Error(`Line ${i + 1}: inventory line not found`)
+      if (inv.quantity_in_stock < bags_dispatched) {
+        const wh = db.prepare('SELECT warehouse_name FROM warehouses WHERE id = ?').get(warehouse_id) as { warehouse_name: string } | undefined
+        throw new Error(`Line ${i + 1}: insufficient stock — ${inv.quantity_in_stock} bags available in ${wh?.warehouse_name ?? 'warehouse'}`)
+      }
+      db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock - ? WHERE id = ?').run(bags_dispatched, inv.id)
+      const result = db.prepare(
+        `INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status)
+         VALUES (?, ?, ?, ?, ?, 'Pending')`
+      ).run(customer_id, batch_id, warehouse_id, packing_size, bags_dispatched)
+      ids.push(result.lastInsertRowid)
+    }
+    return ids
+  })
+
+  try {
+    const orderIds = createOrders()
+    const placeholders = orderIds.map(() => '?').join(',')
+    const orders = db.prepare(`
+      SELECT d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
+             c.customer_name, b.batch_number, it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
+             w.warehouse_name
+      FROM dispatch_orders d
+      JOIN customers c  ON d.customer_id  = c.id
+      JOIN batches b    ON d.batch_id     = b.id
+      JOIN items it     ON b.item_id      = it.id
+      JOIN warehouses w ON d.warehouse_id = w.id
+      WHERE d.id IN (${placeholders})
+      ORDER BY d.id
+    `).all(...orderIds)
+    res.status(201).json(orders)
+  } catch (err: unknown) {
+    res.status(409).json({ error: err instanceof Error ? err.message : 'Unknown error' })
+  }
+})
+
 // PUT /api/dispatch/:id/confirm — requires can_edit
 router.put('/:id/confirm', requireEdit, (req, res) => {
   const { id } = req.params
@@ -111,9 +186,11 @@ router.put('/:id/cancel', requireEdit, (req, res) => {
     } | undefined
     if (!order) throw new Error('Order not found')
     if (order.status !== 'Pending') throw new Error(`Cannot cancel a ${order.status} order`)
-    db.prepare(
-      'UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
-    ).run(order.bags_dispatched, order.batch_id, order.warehouse_id, order.packing_size)
+    const inv = db.prepare(
+      'SELECT id FROM inventory WHERE batch_id = ? AND warehouse_id = ? AND packing_size = ?'
+    ).get(order.batch_id, order.warehouse_id, order.packing_size) as { id: number } | undefined
+    if (!inv) throw new Error('Inventory line no longer exists — cannot restore stock')
+    db.prepare('UPDATE inventory SET quantity_in_stock = quantity_in_stock + ? WHERE id = ?').run(order.bags_dispatched, inv.id)
     db.prepare("UPDATE dispatch_orders SET status = 'Cancelled' WHERE id = ?").run(id)
   })
   try { cancelOrder(); res.json({ success: true }) }

@@ -67,10 +67,14 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
 
   const openDetail = async (id: number) => {
     setLoadingDetail(true)
-    const detail = await api.getLedgerCustomer(id)
-    setSelected(detail)
-    setFromDate('')
-    setToDate('')
+    try {
+      const detail = await api.getLedgerCustomer(id)
+      setSelected(detail)
+      setFromDate('')
+      setToDate('')
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to load customer', 'err')
+    }
     setLoadingDetail(false)
   }
 
@@ -540,8 +544,12 @@ function SupplierLedger({ canEdit, canDelete }: RightsProps) {
 
   const openDetail = async (id: number) => {
     setLoadingDetail(true)
-    const detail = await api.getLedgerSupplier(id)
-    setSelected(detail)
+    try {
+      const detail = await api.getLedgerSupplier(id)
+      setSelected(detail)
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to load supplier', 'err')
+    }
     setLoadingDetail(false)
   }
 
