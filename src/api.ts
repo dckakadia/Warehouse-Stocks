@@ -343,6 +343,7 @@ export interface CustomerOrderRow {
   status: 'Pending' | 'Picked' | 'Cancelled'
   created_at: string
   warehouse_name: string
+  order_group: number | null
 }
 
 export interface CustomerLedgerDetail {
@@ -508,6 +509,7 @@ export interface DailyOutwardRow {
   color_name: string
   item_image: string | null
   warehouse_name: string
+  order_group: number | null
 }
 
 export interface DailyTransferRow {

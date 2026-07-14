@@ -56,7 +56,7 @@ router.get('/daily', (req, res) => {
 
   const outward = db.prepare(`
     SELECT
-      d.id, d.created_at, d.packing_size, d.bags_dispatched, d.status,
+      d.id, d.created_at, d.packing_size, d.bags_dispatched, d.status, d.order_group,
       c.customer_name, c.contact_number,
       b.batch_number, it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
       w.warehouse_name
@@ -83,10 +83,17 @@ router.get('/daily', (req, res) => {
     ORDER BY st.transferred_at DESC
   `).all(from, to) as { bags: number }[]
 
+  // A multi-item order shares one order_group across several dispatch_orders rows (see "Group
+  // multi-item dispatch orders" in CLAUDE.md) — count distinct orders here, not line items, so
+  // this stat matches what the grouped Outward Stock table on the Daily Report actually shows.
+  const distinctOutwardOrders = new Set(
+    (outward as { id: number; order_group: number | null }[]).map(o => o.order_group ?? `s-${o.id}`)
+  ).size
+
   const totals = {
     inward_batches: inward.length,
     inward_bags: inward.reduce((s, b) => s + b.total_bags, 0),
-    outward_orders: outward.length,
+    outward_orders: distinctOutwardOrders,
     outward_bags: (outward as { bags_dispatched: number }[]).reduce((s, o) => s + o.bags_dispatched, 0),
     transfer_count: transfers.length,
     transfer_bags: transfers.reduce((s, t) => s + t.bags, 0),

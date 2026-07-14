@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as api from '../api'
 import type { DispatchOrder, ColorRow, Warehouse as WarehouseType, BatchRow, InwardBatch } from '../api'
 import Ic from '../icons'
-import { todayISO, whColor } from '../utils'
+import { todayISO, whColor, groupByOrder } from '../utils'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBlock from '../components/ErrorBlock'
@@ -383,16 +383,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   // server/db.ts) — grouped here into one card with one set of actions. Rows with no group (every
   // pre-existing order, and any single-line dispatch) each form their own group of one, rendering
   // exactly as before.
-  const groupedOrders = useMemo(() => {
-    const map = new Map<string, DispatchOrder[]>()
-    for (const o of filteredOrders) {
-      const key = o.order_group != null ? `g-${o.order_group}` : `s-${o.id}`
-      const arr = map.get(key)
-      if (arr) arr.push(o)
-      else map.set(key, [o])
-    }
-    return [...map.entries()].map(([key, group]) => ({ key, group }))
-  }, [filteredOrders])
+  const groupedOrders = useMemo(() => groupByOrder(filteredOrders), [filteredOrders])
 
   return (
     <main className="max-w-xl mx-auto px-4 py-6 w-full">
@@ -453,7 +444,7 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
           {!loadingOrders && !pageError && orders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No pending orders</p>}
           {!loadingOrders && !pageError && orders.length > 0 && filteredOrders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No orders match your search</p>}
           <div className="space-y-3">
-            {!pageError && groupedOrders.map(({ key, group }) => {
+            {!pageError && groupedOrders.map(({ key, items: group }) => {
               const first = group[0]
               return (
                 <div key={key} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">

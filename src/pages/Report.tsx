@@ -1,13 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Fragment, useState, useEffect, useMemo, useCallback } from 'react'
 import * as api from '../api'
-import type { CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, SupplierSummary, SupplierLedgerDetail, SupplierBatchRow, TransferRecord, DailyReportResponse } from '../api'
+import type { CustomerSummary, CustomerLedgerDetail, CustomerOrderRow, SupplierSummary, SupplierLedgerDetail, SupplierBatchRow, TransferRecord, DailyReportResponse, DailyOutwardRow } from '../api'
 import Ic from '../icons'
 import { useToast } from '../hooks/useToast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBlock from '../components/ErrorBlock'
 import Skeleton from '../components/Skeleton'
 import Lightbox from '../components/Lightbox'
-import { todayISO, printHtmlDocument } from '../utils'
+import { todayISO, printHtmlDocument, groupByOrder } from '../utils'
 
 /* ── Status Badge ── */
 function StatusBadge({ status }: { status: string }) {
@@ -46,7 +46,15 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const { add: toast } = useToast()
+
+  const toggleExpand = (key: string) => setExpandedGroups(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
 
   const loadList = useCallback(() => {
     setLoadingList(true)
@@ -129,8 +137,12 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
       return true
     })
 
+    // Lines from the same cart order (see "Group multi-item dispatch orders" in CLAUDE.md) are
+    // grouped so a multi-item delivery reads as one order, not several disconnected rows.
+    const groupedOrders = groupByOrder(dateFilteredOrders)
+
     const filteredTotals = {
-      total_orders: dateFilteredOrders.length,
+      total_orders: groupedOrders.length,
       total_bags: dateFilteredOrders.filter(o => o.status !== 'Cancelled').reduce((s, o) => s + o.bags_dispatched, 0),
       picked_bags: dateFilteredOrders.filter(o => o.status === 'Picked').reduce((s, o) => s + o.bags_dispatched, 0),
       pending_bags: dateFilteredOrders.filter(o => o.status === 'Pending').reduce((s, o) => s + o.bags_dispatched, 0),
@@ -142,7 +154,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
         ? `${fromDate ? new Date(fromDate).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : 'Start'} — ${toDate ? new Date(toDate).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : 'Today'}`
         : 'All Time'
 
-      const rows = dateFilteredOrders.map(o => `
+      const orderRow = (o: CustomerOrderRow) => `
         <tr>
           <td class="mono">DIS-${o.id}</td>
           <td>${new Date(o.created_at).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</td>
@@ -152,7 +164,17 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
           <td class="bold center">${o.bags_dispatched}</td>
           <td class="sm">${o.warehouse_name}</td>
           <td><span class="badge badge-${o.status.toLowerCase()}">${o.status}</span></td>
-        </tr>`).join('')
+        </tr>`
+
+      // Multi-item orders (a cart submitted together) get a header row spanning the table so they
+      // read as one delivery, not several unrelated line items — a printed page can't be expanded
+      // interactively like the on-screen table, so every item is always shown.
+      const rows = groupedOrders.map(({ items }) => items.length === 1
+        ? orderRow(items[0])
+        : `
+        <tr class="order-header"><td colspan="8">Order ${items.map(o => `DIS-${o.id}`).join(', ')} — ${items.length} items</td></tr>
+        ${items.map(orderRow).join('')}`
+      ).join('')
 
       const html = `<!DOCTYPE html>
 <html lang="en">
@@ -200,6 +222,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
   .badge-pending   { background: #fef3c7; color: #92400e; }
   .badge-picked    { background: #d1fae5; color: #065f46; }
   .badge-cancelled { background: #fee2e2; color: #991b1b; }
+  .order-header td { background: #f5f5f5 !important; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #555; padding: 5px 10px; }
   /* Footer */
   .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
   .no-orders { text-align: center; padding: 30px; color: #999; font-style: italic; }
@@ -240,7 +263,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
     <div class="stat"><div class="num num-red">${filteredTotals.cancelled_bags.toLocaleString()}</div><div class="lbl">Cancelled</div></div>
   </div>
 
-  <div class="section-title">Orders (${dateFilteredOrders.length})</div>
+  <div class="section-title">Orders (${groupedOrders.length})</div>
   ${dateFilteredOrders.length === 0
     ? '<div class="no-orders">No orders for the selected period.</div>'
     : `<table>
@@ -315,7 +338,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
             </button>
           )}
           {(fromDate || toDate) && (
-            <span className="text-xs text-blue-400 ml-auto">{dateFilteredOrders.length} of {orders.length} orders</span>
+            <span className="text-xs text-blue-400 ml-auto">{groupedOrders.length} of {groupByOrder(orders).length} orders</span>
           )}
         </div>
 
@@ -338,7 +361,7 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
         {/* Orders table */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-800">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Orders ({dateFilteredOrders.length})</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Orders ({groupedOrders.length})</p>
           </div>
           {dateFilteredOrders.length === 0 ? (
             <p className="px-4 py-10 text-center text-sm text-gray-500">
@@ -356,45 +379,75 @@ function CustomerLedger({ canEdit, canDelete }: RightsProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
-                  {dateFilteredOrders.map(o => (
-                    <tr key={o.id} className="hover:bg-gray-800/40 transition-colors">
-                      <td className="px-4 py-3 text-xs font-mono text-gray-400">DIS-{o.id}</td>
-                      <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{new Date(o.created_at).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {o.item_image
-                            ? <img src={o.item_image}
-                                className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
-                                onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
-                            : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
-                          <span className="text-sm text-white font-medium">{o.color_name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs font-mono text-gray-300">{o.batch_number}</td>
-                      <td className="px-4 py-3 text-xs text-gray-300">{o.packing_size}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-white">{o.bags_dispatched}</td>
-                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name}</td>
-                      <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
-                      {(canEdit || canDelete) && (
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1">
-                            {canEdit && (
-                              <button onClick={() => openEdit(o)} title="Edit order"
-                                className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors">
-                                <Ic.Pencil />
-                              </button>
+                  {groupedOrders.map(({ key, items }) => {
+                    const isGroup = items.length > 1
+                    const expanded = expandedGroups.has(key)
+                    const first = items[0]
+                    const statuses = new Set(items.map(o => o.status))
+                    return (
+                      <Fragment key={key}>
+                        {isGroup && (
+                          <tr className="hover:bg-gray-800/40 transition-colors cursor-pointer" onClick={() => toggleExpand(key)}>
+                            <td className="px-4 py-3 text-xs font-mono text-gray-400">
+                              <span className="inline-flex items-center gap-1.5">
+                                {expanded ? <Ic.ChevronDown /> : <Ic.ChevronRight />}
+                                DIS-{first.id}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{new Date(first.created_at).toLocaleDateString()}</td>
+                            <td className="px-4 py-3"><span className="text-sm text-white font-medium">{items.length} items</span></td>
+                            <td className="px-4 py-3 text-xs text-gray-600">—</td>
+                            <td className="px-4 py-3 text-xs text-gray-600">—</td>
+                            <td className="px-4 py-3 text-sm font-bold text-white">{items.reduce((s, o) => s + o.bags_dispatched, 0)}</td>
+                            <td className="px-4 py-3 text-xs text-gray-600">—</td>
+                            <td className="px-4 py-3">
+                              {statuses.size === 1 ? <StatusBadge status={first.status} /> : <span className="text-xs text-gray-400">Mixed</span>}
+                            </td>
+                            {(canEdit || canDelete) && <td className="px-4 py-3" />}
+                          </tr>
+                        )}
+                        {(!isGroup || expanded) && items.map(o => (
+                          <tr key={o.id} className={`hover:bg-gray-800/40 transition-colors ${isGroup ? 'bg-gray-950/40' : ''}`}>
+                            <td className={`px-4 py-3 text-xs font-mono text-gray-400 ${isGroup ? 'pl-9' : ''}`}>DIS-{o.id}</td>
+                            <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{new Date(o.created_at).toLocaleDateString()}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {o.item_image
+                                  ? <img src={o.item_image}
+                                      className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                      onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
+                                  : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
+                                <span className="text-sm text-white font-medium">{o.color_name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-xs font-mono text-gray-300">{o.batch_number}</td>
+                            <td className="px-4 py-3 text-xs text-gray-300">{o.packing_size}</td>
+                            <td className="px-4 py-3 text-sm font-bold text-white">{o.bags_dispatched}</td>
+                            <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name}</td>
+                            <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                            {(canEdit || canDelete) && (
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1">
+                                  {canEdit && (
+                                    <button onClick={() => openEdit(o)} title="Edit order"
+                                      className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors">
+                                      <Ic.Pencil />
+                                    </button>
+                                  )}
+                                  {canDelete && (
+                                    <button onClick={() => setDeleteOrderId(o.id)} title="Delete order"
+                                      className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors">
+                                      <Ic.Trash />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             )}
-                            {canDelete && (
-                              <button onClick={() => setDeleteOrderId(o.id)} title="Delete order"
-                                className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors">
-                                <Ic.Trash />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1337,6 +1390,14 @@ function DailyReport() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+
+  const toggleExpand = (key: string) => setExpandedGroups(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
 
   const load = async (from: string, to: string) => {
     setLoading(true)
@@ -1366,6 +1427,10 @@ function DailyReport() {
     ? fmtDate(fromDate)
     : `${fmtDate(fromDate)} — ${fmtDate(toDate)}`
 
+  // Lines from the same cart order (see "Group multi-item dispatch orders" in CLAUDE.md) are
+  // grouped so a multi-item delivery reads as one order in the Outward Stock table.
+  const groupedOutward = useMemo(() => data ? groupByOrder(data.outward) : [], [data])
+
   const handlePrint = () => {
     if (!data) return
     const inwardRows = data.inward.map(b => `
@@ -1378,7 +1443,7 @@ function DailyReport() {
         <td class="bold center">${b.total_bags}</td>
       </tr>`).join('')
 
-    const outwardRows = data.outward.map(o => `
+    const outwardRow = (o: DailyOutwardRow) => `
       <tr>
         <td>${fmtDate(o.created_at)}</td>
         <td class="bold">${o.color_name}</td>
@@ -1388,7 +1453,16 @@ function DailyReport() {
         <td>${o.packing_size}</td>
         <td class="bold center">${o.bags_dispatched}</td>
         <td><span class="badge badge-${o.status.toLowerCase()}">${o.status}</span></td>
-      </tr>`).join('')
+      </tr>`
+
+    // Multi-item orders (a cart submitted together) get a header row so a delivery reads as one
+    // order, not several unrelated line items — see "Group multi-item dispatch orders" in CLAUDE.md.
+    const outwardRows = groupByOrder(data.outward).map(({ items }) => items.length === 1
+      ? outwardRow(items[0])
+      : `
+      <tr class="order-header"><td colspan="8">Order ${items.map(o => `DIS-${o.id}`).join(', ')} — ${items.length} items</td></tr>
+      ${items.map(outwardRow).join('')}`
+    ).join('')
 
     const transferRows = data.transfers.map(t => `
       <tr>
@@ -1439,6 +1513,7 @@ function DailyReport() {
   .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
   .badge-pending   { background: #fef3c7; color: #92400e; }
   .badge-picked    { background: #d1fae5; color: #065f46; }
+  .order-header td { background: #f5f5f5 !important; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #555; padding: 5px 10px; }
   .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
   .no-rows { text-align: center; padding: 20px; color: #999; font-style: italic; }
   @media print {
@@ -1636,27 +1711,57 @@ function DailyReport() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800">
-                    {data.outward.map(o => (
-                      <tr key={o.id} className="hover:bg-gray-800/40 transition-colors">
-                        <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{fmtDate(o.created_at)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {o.item_image
-                              ? <img src={o.item_image}
-                                  className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
-                                  onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
-                              : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
-                            <span className="text-sm text-white font-medium">{o.color_name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs font-mono text-gray-300">{o.batch_number}</td>
-                        <td className="px-4 py-3 text-xs text-gray-400">{o.customer_name}</td>
-                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name}</td>
-                        <td className="px-4 py-3 text-xs text-gray-300">{o.packing_size}</td>
-                        <td className="px-4 py-3 text-sm font-bold text-amber-400">{o.bags_dispatched.toLocaleString()}</td>
-                        <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
-                      </tr>
-                    ))}
+                    {groupedOutward.map(({ key, items }) => {
+                      const isGroup = items.length > 1
+                      const expanded = expandedGroups.has(key)
+                      const first = items[0]
+                      const statuses = new Set(items.map(o => o.status))
+                      return (
+                        <Fragment key={key}>
+                          {isGroup && (
+                            <tr className="hover:bg-gray-800/40 transition-colors cursor-pointer" onClick={() => toggleExpand(key)}>
+                              <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{fmtDate(first.created_at)}</td>
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center gap-1.5 text-sm text-white font-medium">
+                                  {expanded ? <Ic.ChevronDown /> : <Ic.ChevronRight />}
+                                  {items.length} items
+                                  <span className="text-xs text-gray-500 font-mono font-normal">DIS-{first.id}</span>
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-600">—</td>
+                              <td className="px-4 py-3 text-xs text-gray-400">{first.customer_name}</td>
+                              <td className="px-4 py-3 text-xs text-gray-600">—</td>
+                              <td className="px-4 py-3 text-xs text-gray-600">—</td>
+                              <td className="px-4 py-3 text-sm font-bold text-amber-400">{items.reduce((s, o) => s + o.bags_dispatched, 0).toLocaleString()}</td>
+                              <td className="px-4 py-3">
+                                {statuses.size === 1 ? <StatusBadge status={first.status} /> : <span className="text-xs text-gray-400">Mixed</span>}
+                              </td>
+                            </tr>
+                          )}
+                          {(!isGroup || expanded) && items.map(o => (
+                            <tr key={o.id} className={`hover:bg-gray-800/40 transition-colors ${isGroup ? 'bg-gray-950/40' : ''}`}>
+                              <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{fmtDate(o.created_at)}</td>
+                              <td className={`px-4 py-3 ${isGroup ? 'pl-9' : ''}`}>
+                                <div className="flex items-center gap-2">
+                                  {o.item_image
+                                    ? <img src={o.item_image}
+                                        className="w-7 h-7 rounded object-cover border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                                        onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
+                                    : <div className="w-7 h-7 rounded bg-gray-700 flex-shrink-0" />}
+                                  <span className="text-sm text-white font-medium">{o.color_name}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-xs font-mono text-gray-300">{o.batch_number}</td>
+                              <td className="px-4 py-3 text-xs text-gray-400">{o.customer_name}</td>
+                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{o.warehouse_name}</td>
+                              <td className="px-4 py-3 text-xs text-gray-300">{o.packing_size}</td>
+                              <td className="px-4 py-3 text-sm font-bold text-amber-400">{o.bags_dispatched.toLocaleString()}</td>
+                              <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

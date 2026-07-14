@@ -159,7 +159,7 @@ router.get('/ledger/customer/:id', (req, res) => {
 
   const orders = db.prepare(`
     SELECT
-      d.id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
+      d.id, d.packing_size, d.bags_dispatched, d.status, d.created_at, d.order_group,
       it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
       b.batch_number,
       w.warehouse_name

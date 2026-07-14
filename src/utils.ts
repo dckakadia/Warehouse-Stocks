@@ -7,6 +7,21 @@ export const W_COLORS = [
 
 export const whColor = (wid: number) => W_COLORS[(wid - 1) % W_COLORS.length]
 
+// Groups rows sharing a non-null order_group (a cart submitted together via POST /dispatch/bulk)
+// into one entry; rows with no group (every pre-existing/single-line order) each form their own
+// group of one. Used everywhere a dispatch order/line is listed — Picking tab, Customer Ledger,
+// Daily Report — so a multi-item order reads as one order, not several disconnected rows.
+export function groupByOrder<T extends { id: number; order_group: number | null }>(rows: T[]): { key: string; items: T[] }[] {
+  const map = new Map<string, T[]>()
+  for (const r of rows) {
+    const key = r.order_group != null ? `g-${r.order_group}` : `s-${r.id}`
+    const arr = map.get(key)
+    if (arr) arr.push(r)
+    else map.set(key, [r])
+  }
+  return [...map.entries()].map(([key, items]) => ({ key, items }))
+}
+
 export function todayISO() {
   // Local calendar date, not UTC — toISOString() converts to UTC first, which returns yesterday's
   // date for part of the day in any timezone ahead of UTC (e.g. IST, UTC+5:30, until 05:29 local).

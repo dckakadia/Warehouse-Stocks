@@ -42,4 +42,41 @@ describe('GET /reports/daily', () => {
     const lineAfter = after.inward[0]
     expect(lineAfter.total_bags).toBe(100) // unchanged — still the original inward quantity, not the 70 remaining
   })
+
+  it('counts a multi-item order once in outward_orders, not once per line, and returns order_group', async () => {
+    const warehouseId = db.prepare("INSERT INTO warehouses (warehouse_name) VALUES ('WH Grp')").run().lastInsertRowid as number
+    const itemId = db.prepare("INSERT INTO items (color_name) VALUES ('Grouped Green')").run().lastInsertRowid as number
+    const today = new Date().toISOString().slice(0, 10)
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'RPT-GRP', ?)"
+    ).run(itemId, today).lastInsertRowid as number
+    db.prepare(
+      'INSERT INTO inventory (batch_id, warehouse_id, packing_size, quantity_in_stock, original_quantity) VALUES (?, ?, ?, ?, ?)'
+    ).run(batchId, warehouseId, '25kg', 100, 100)
+    const customerId = db.prepare("INSERT INTO customers (customer_name) VALUES ('Grouped Co')").run().lastInsertRowid as number
+
+    // Two lines sharing an order_group (a 2-item cart order) ...
+    const line1 = db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status) VALUES (?, ?, ?, '25kg', 5, 'Pending')"
+    ).run(customerId, batchId, warehouseId).lastInsertRowid as number
+    db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status, order_group) VALUES (?, ?, ?, '25kg', 3, 'Pending', ?)"
+    ).run(customerId, batchId, warehouseId, line1)
+    db.prepare('UPDATE dispatch_orders SET order_group = ? WHERE id = ?').run(line1, line1)
+    // ... plus one standalone single-line order
+    db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status) VALUES (?, ?, ?, '25kg', 2, 'Pending')"
+    ).run(customerId, batchId, warehouseId)
+
+    const res = await fetch(`${server.url}/daily?from=${today}&to=${today}`)
+    const body = await res.json() as { outward: { id: number; order_group: number | null }[]; totals: { outward_orders: number } }
+    expect(body.outward.some(o => o.order_group === line1)).toBe(true) // order_group came through
+
+    // outward_orders must count distinct orders, not dispatch_orders rows — verified generally
+    // (not just for this test's own two lines) since other tests in this file share the same
+    // in-memory DB and today's date range.
+    const distinctOrders = new Set(body.outward.map(o => o.order_group ?? `s-${o.id}`)).size
+    expect(body.totals.outward_orders).toBe(distinctOrders)
+    expect(distinctOrders).toBeLessThan(body.outward.length) // the group really did collapse 2 rows into 1
+  })
 })

@@ -227,6 +227,34 @@ describe('GET /ledger/suppliers and /ledger/supplier/:id', () => {
   })
 })
 
+describe('GET /ledger/customer/:id', () => {
+  it('returns order_group so a multi-item cart order can be shown as one order', async () => {
+    const customerId = db.prepare("INSERT INTO customers (customer_name) VALUES ('Ledger Grp Co')").run().lastInsertRowid as number
+    const batchId = db.prepare(
+      "INSERT INTO batches (item_id, batch_number, import_date) VALUES (?, 'LEDGER-GRP', '2026-07-01')"
+    ).run(itemId).lastInsertRowid as number
+
+    const line1 = db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status) VALUES (?, ?, ?, '25kg', 4, 'Pending')"
+    ).run(customerId, batchId, warehouseA).lastInsertRowid as number
+    const line2 = db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status, order_group) VALUES (?, ?, ?, '25kg', 2, 'Pending', ?)"
+    ).run(customerId, batchId, warehouseA, line1).lastInsertRowid as number
+    db.prepare('UPDATE dispatch_orders SET order_group = ? WHERE id = ?').run(line1, line1)
+    // A standalone single-line order, unrelated to the group above
+    db.prepare(
+      "INSERT INTO dispatch_orders (customer_id, batch_id, warehouse_id, packing_size, bags_dispatched, status) VALUES (?, ?, ?, '25kg', 1, 'Pending')"
+    ).run(customerId, batchId, warehouseA)
+
+    const res = await fetch(`${server.url}/ledger/customer/${customerId}`)
+    const body = await res.json() as { orders: { id: number; order_group: number | null }[] }
+    const grouped = body.orders.filter(o => o.id === line1 || o.id === line2)
+    expect(grouped.every(o => o.order_group === line1)).toBe(true)
+    const standalone = body.orders.find(o => o.id !== line1 && o.id !== line2)!
+    expect(standalone.order_group).toBeNull()
+  })
+})
+
 describe('PUT /inward/batches/:id — received quantity correction', () => {
   it('raising received quantity increases current stock by the same delta', async () => {
     const batchId = db.prepare(
