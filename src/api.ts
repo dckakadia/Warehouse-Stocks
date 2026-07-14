@@ -89,6 +89,8 @@ export const createBulkDispatchOrders = (body: CreateBulkDispatchBody) =>
   request<DispatchOrder[]>('/dispatch/bulk', { method: 'POST', body: JSON.stringify(body) })
 export const confirmPickedOrder = (id: number) =>
   request<{ success: boolean }>(`/dispatch/${id}/confirm`, { method: 'PUT' })
+export const confirmPickedOrderGroup = (groupId: number) =>
+  request<{ success: boolean }>(`/dispatch/group/${groupId}/confirm`, { method: 'PUT' })
 export const cancelDispatchOrder = (id: number) =>
   request<{ success: boolean }>(`/dispatch/${id}/cancel`, { method: 'PUT' })
 
@@ -235,6 +237,7 @@ export interface DispatchOrder {
   bags_dispatched: number
   status: 'Pending' | 'Picked' | 'Cancelled'
   created_at: string
+  order_group: number | null
 }
 
 export interface CreateDispatchBody {

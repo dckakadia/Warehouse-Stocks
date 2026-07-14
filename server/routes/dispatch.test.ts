@@ -55,9 +55,10 @@ describe('POST /dispatch', () => {
       body: JSON.stringify({ customer_id: customerId, batch_id: batchId, warehouse_id: warehouseId, packing_size: '25kg', bags_dispatched: 20 }),
     })
     expect(res.status).toBe(201)
-    const body = await res.json() as { id: number; status: string }
+    const body = await res.json() as { id: number; status: string; order_group: number | null }
     orderId = body.id
     expect(body.status).toBe('Pending')
+    expect(body.order_group).toBeNull() // not part of a cart submission
     expect(inventoryQty()).toBe(30)
   })
 
@@ -164,9 +165,14 @@ describe('POST /dispatch/bulk', () => {
       }),
     })
     expect(res.status).toBe(201)
-    const orders = await res.json() as { id: number; status: string }[]
+    const orders = await res.json() as { id: number; status: string; order_group: number | null }[]
     expect(orders).toHaveLength(3)
     expect(orders.every(o => o.status === 'Pending')).toBe(true)
+
+    // All three lines share one order_group (the first line's own id) so the Picking list can
+    // render them as one card — see "Group multi-item dispatch orders" in CLAUDE.md.
+    expect(orders.every(o => o.order_group === orders[0].id)).toBe(true)
+    expect(orders[0].order_group).not.toBeNull()
 
     expect(qtyFor(batchId, warehouseId, '25kg')).toBe(before1 - 5)
     expect(qtyFor(batchId, warehouseId2, '25kg')).toBe(before2 - 8)
@@ -217,5 +223,68 @@ describe('POST /dispatch/bulk', () => {
     })
     expect(res.status).toBe(400)
     expect(qtyFor(batchId, warehouseId, '25kg')).toBe(before)
+  })
+})
+
+describe('PUT /dispatch/group/:groupId/confirm', () => {
+  it('marks every pending order in the group Picked and logs each one', async () => {
+    const res = await fetch(`${server.url}/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_id: customerId,
+        lines: [
+          { batch_id: batchId, warehouse_id: warehouseId, packing_size: '25kg', bags_dispatched: 1 },
+          { batch_id: batchId, warehouse_id: warehouseId2, packing_size: '25kg', bags_dispatched: 1 },
+        ],
+      }),
+    })
+    const orders = await res.json() as { id: number; order_group: number }[]
+    const groupId = orders[0].order_group
+
+    const confirmRes = await fetch(`${server.url}/group/${groupId}/confirm`, { method: 'PUT' })
+    expect(confirmRes.status).toBe(200)
+
+    for (const o of orders) {
+      const row = db.prepare('SELECT status FROM dispatch_orders WHERE id = ?').get(o.id) as { status: string }
+      expect(row.status).toBe('Picked')
+      const log = db.prepare('SELECT * FROM dispatch_logs WHERE dispatch_order_id = ?').get(o.id)
+      expect(log).toBeDefined()
+    }
+  })
+
+  it('only touches the still-Pending members of a partially-picked group', async () => {
+    const res = await fetch(`${server.url}/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_id: customerId,
+        lines: [
+          { batch_id: batchId, warehouse_id: warehouseId, packing_size: '25kg', bags_dispatched: 1 },
+          { batch_id: batchId, warehouse_id: warehouseId2, packing_size: '25kg', bags_dispatched: 1 },
+        ],
+      }),
+    })
+    const orders = await res.json() as { id: number; order_group: number }[]
+    const groupId = orders[0].order_group
+
+    // Confirm just the first line individually before the group-confirm call
+    await fetch(`${server.url}/${orders[0].id}/confirm`, { method: 'PUT' })
+
+    const confirmRes = await fetch(`${server.url}/group/${groupId}/confirm`, { method: 'PUT' })
+    expect(confirmRes.status).toBe(200)
+
+    const row0 = db.prepare('SELECT status FROM dispatch_orders WHERE id = ?').get(orders[0].id) as { status: string }
+    const row1 = db.prepare('SELECT status FROM dispatch_orders WHERE id = ?').get(orders[1].id) as { status: string }
+    expect(row0.status).toBe('Picked')
+    expect(row1.status).toBe('Picked')
+    // Only one dispatch_logs row for the pre-confirmed order (not double-logged by the group call)
+    const logs = db.prepare('SELECT * FROM dispatch_logs WHERE dispatch_order_id = ?').all(orders[0].id)
+    expect(logs).toHaveLength(1)
+  })
+
+  it('returns 409 when no pending orders match the group', async () => {
+    const res = await fetch(`${server.url}/group/999999/confirm`, { method: 'PUT' })
+    expect(res.status).toBe(409)
   })
 })

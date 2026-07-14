@@ -15,7 +15,7 @@ router.get('/', (req, res) => {
   const { status } = req.query
   const rows = db.prepare(`
     SELECT
-      d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
+      d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at, d.order_group,
       c.customer_name, c.contact_number,
       b.batch_number, b.import_date,
       it.color_name, it.hsn_code, COALESCE(b.batch_image, it.item_image) AS item_image,
@@ -65,7 +65,7 @@ router.post('/', requireEdit, (req, res) => {
   try {
     const orderId = createOrder()
     const order = db.prepare(`
-      SELECT d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
+      SELECT d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at, d.order_group,
              c.customer_name, b.batch_number, it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
              w.warehouse_name
       FROM dispatch_orders d
@@ -132,6 +132,12 @@ router.post('/bulk', requireEdit, (req, res) => {
       ).run(customer_id, batch_id, warehouse_id, packing_size, bags_dispatched)
       ids.push(result.lastInsertRowid)
     }
+    // Tag every line from this cart submission with a shared order_group (the first line's own
+    // id) so the Picking list can render them as one card with one Confirm Picked/Print/Share
+    // action — see "Group multi-item dispatch orders" in CLAUDE.md.
+    const groupId = ids[0]
+    const groupPlaceholders = ids.map(() => '?').join(',')
+    db.prepare(`UPDATE dispatch_orders SET order_group = ? WHERE id IN (${groupPlaceholders})`).run(groupId, ...ids)
     return ids
   })
 
@@ -139,7 +145,7 @@ router.post('/bulk', requireEdit, (req, res) => {
     const orderIds = createOrders()
     const placeholders = orderIds.map(() => '?').join(',')
     const orders = db.prepare(`
-      SELECT d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at,
+      SELECT d.id, d.warehouse_id, d.packing_size, d.bags_dispatched, d.status, d.created_at, d.order_group,
              c.customer_name, b.batch_number, it.color_name, COALESCE(b.batch_image, it.item_image) AS item_image,
              w.warehouse_name
       FROM dispatch_orders d
@@ -154,6 +160,31 @@ router.post('/bulk', requireEdit, (req, res) => {
   } catch (err: unknown) {
     res.status(409).json({ error: err instanceof Error ? err.message : 'Unknown error' })
   }
+})
+
+// PUT /api/dispatch/group/:groupId/confirm — requires can_edit
+// Confirms every still-Pending order sharing an order_group (a cart submitted together via
+// POST /bulk) in one transaction — either all of them move to Picked, or none do.
+router.put('/group/:groupId/confirm', requireEdit, (req, res) => {
+  const { groupId } = req.params
+  const confirmGroup = db.transaction(() => {
+    const orders = db.prepare(
+      "SELECT * FROM dispatch_orders WHERE order_group = ? AND status = 'Pending'"
+    ).all(groupId) as {
+      id: number; customer_id: number; batch_id: number; warehouse_id: number
+      packing_size: string; bags_dispatched: number; status: string
+    }[]
+    if (orders.length === 0) throw new Error('No pending orders found in this group')
+    for (const order of orders) {
+      db.prepare("UPDATE dispatch_orders SET status = 'Picked' WHERE id = ?").run(order.id)
+      db.prepare(
+        `INSERT INTO dispatch_logs (dispatch_order_id, customer_id, batch_id, packing_size, bags_dispatched)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(order.id, order.customer_id, order.batch_id, order.packing_size, order.bags_dispatched)
+    }
+  })
+  try { confirmGroup(); res.json({ success: true }) }
+  catch (err: unknown) { res.status(409).json({ error: err instanceof Error ? err.message : 'Unknown error' }) }
 })
 
 // PUT /api/dispatch/:id/confirm — requires can_edit

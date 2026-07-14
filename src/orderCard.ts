@@ -12,12 +12,67 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export function buildOrderCardHtml(order: DispatchOrder): string {
+export function buildOrderCardHtml(orders: DispatchOrder[]): string {
+  const first = orders[0]
+  const orderIdText = orders.length === 1 ? `DIS-${first.id}` : orders.map(o => `DIS-${o.id}`).join(', ')
+
+  // A single item keeps the original hero layout (big photo, big "Bags to Pick" figure) — this is
+  // the overwhelmingly common case and shouldn't look downgraded. A real multi-item order (from a
+  // cart submission, see order_group in server/db.ts) instead lists every item as a compact row,
+  // since there's no single "bags to pick" number that makes sense across different items/sizes.
+  const itemContent = orders.length === 1 ? `
+  <div class="item-section">
+    ${first.item_image
+      ? `<img class="item-photo" src="${first.item_image}" alt="${first.color_name}">`
+      : `<div class="item-photo-placeholder">No photo</div>`}
+    <div class="item-fields">
+      <div>
+        <div class="color-name">${first.color_name}</div>
+        <div class="hsn">HSN: ${first.hsn_code}</div>
+      </div>
+      <div class="field-grid">
+        <div>
+          <div class="field-label">Batch Number</div>
+          <div class="field-value mono">${first.batch_number}</div>
+        </div>
+        <div>
+          <div class="field-label">Warehouse</div>
+          <div class="field-value">${first.warehouse_name}</div>
+        </div>
+        <div>
+          <div class="field-label">Pack Size</div>
+          <div class="field-value">${first.packing_size}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bags-box">
+    <div class="num">${first.bags_dispatched}</div>
+    <div class="lbl">Bags to Pick</div>
+  </div>` : `
+  <div class="items-list">
+    ${orders.map(o => `
+    <div class="item-row">
+      ${o.item_image
+        ? `<img class="item-photo-sm" src="${o.item_image}" alt="${o.color_name}">`
+        : `<div class="item-photo-sm-placeholder">No photo</div>`}
+      <div class="item-row-fields">
+        <div class="item-row-name">${o.color_name}</div>
+        <div class="item-row-meta">DIS-${o.id} · <span class="mono">${o.batch_number}</span> · ${o.warehouse_name} · ${o.packing_size}</div>
+      </div>
+      <div class="item-row-bags">
+        <div class="num">${o.bags_dispatched}</div>
+        <div class="lbl">Bags</div>
+      </div>
+    </div>`).join('')}
+  </div>`
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Dispatch Order — DIS-${order.id}</title>
+<title>Dispatch Order — ${orderIdText}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; font-size: 12px; line-height: 1.4; }
@@ -29,10 +84,10 @@ export function buildOrderCardHtml(order: DispatchOrder): string {
   .header-right .label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; }
   .header-right .value { font-size: 13px; font-weight: 700; margin-top: 1px; }
   .header-right .sub { font-size: 10px; color: #555; margin-top: 2px; }
-  .order-bar { display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; }
-  .order-id { font-size: 20px; font-weight: 800; font-family: 'Courier New', monospace; }
+  .order-bar { display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; gap: 12px; }
+  .order-id { font-size: 18px; font-weight: 800; font-family: 'Courier New', monospace; }
   .order-date { font-size: 11px; color: #555; margin-top: 2px; }
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; background: #fef3c7; color: #92400e; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; background: #fef3c7; color: #92400e; flex-shrink: 0; }
   .customer-bar { margin-bottom: 20px; }
   .field-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
   .customer-name { font-size: 22px; font-weight: 800; }
@@ -48,6 +103,17 @@ export function buildOrderCardHtml(order: DispatchOrder): string {
   .bags-box { border: 2px solid #1a1a1a; border-radius: 10px; padding: 16px 20px; text-align: center; margin-bottom: 20px; }
   .bags-box .num { font-size: 44px; font-weight: 800; line-height: 1; }
   .bags-box .lbl { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 6px; font-weight: 700; }
+  .items-list { margin-bottom: 20px; }
+  .item-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #eee; }
+  .item-row:last-child { border-bottom: none; }
+  .item-photo-sm { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid #e0e0e0; flex-shrink: 0; }
+  .item-photo-sm-placeholder { width: 60px; height: 60px; border-radius: 8px; border: 1px dashed #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 8px; text-align: center; }
+  .item-row-fields { flex: 1; min-width: 0; }
+  .item-row-name { font-size: 15px; font-weight: 800; }
+  .item-row-meta { font-size: 10px; color: #888; margin-top: 3px; }
+  .item-row-bags { text-align: right; flex-shrink: 0; }
+  .item-row-bags .num { font-size: 24px; font-weight: 800; line-height: 1; }
+  .item-row-bags .lbl { font-size: 8px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
   .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 9px; color: #aaa; }
   @media print {
     body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -72,59 +138,28 @@ export function buildOrderCardHtml(order: DispatchOrder): string {
 
   <div class="order-bar">
     <div>
-      <div class="order-id">DIS-${order.id}</div>
-      <div class="order-date">Created ${formatDate(order.created_at)}</div>
+      <div class="order-id">${orderIdText}</div>
+      <div class="order-date">Created ${formatDate(first.created_at)}</div>
     </div>
-    <span class="badge">${order.status}</span>
+    <span class="badge">${first.status}</span>
   </div>
 
   <div class="customer-bar">
     <div class="field-label">Deliver To</div>
-    <div class="customer-name">${order.customer_name}</div>
+    <div class="customer-name">${first.customer_name}</div>
   </div>
-
-  <div class="item-section">
-    ${order.item_image
-      ? `<img class="item-photo" src="${order.item_image}" alt="${order.color_name}">`
-      : `<div class="item-photo-placeholder">No photo</div>`}
-    <div class="item-fields">
-      <div>
-        <div class="color-name">${order.color_name}</div>
-        <div class="hsn">HSN: ${order.hsn_code}</div>
-      </div>
-      <div class="field-grid">
-        <div>
-          <div class="field-label">Batch Number</div>
-          <div class="field-value mono">${order.batch_number}</div>
-        </div>
-        <div>
-          <div class="field-label">Warehouse</div>
-          <div class="field-value">${order.warehouse_name}</div>
-        </div>
-        <div>
-          <div class="field-label">Pack Size</div>
-          <div class="field-value">${order.packing_size}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="bags-box">
-    <div class="num">${order.bags_dispatched}</div>
-    <div class="lbl">Bags to Pick</div>
-  </div>
-
+  ${itemContent}
   <div class="footer">
     <span>Glass Beads WMS — Confidential</span>
-    <span>DIS-${order.id} · ${order.customer_name}</span>
+    <span>${orderIdText} · ${first.customer_name}</span>
   </div>
 </div>
 </body>
 </html>`
 }
 
-export function printOrderCard(order: DispatchOrder) {
-  printHtmlDocument(buildOrderCardHtml(order))
+export function printOrderCard(orders: DispatchOrder[]) {
+  printHtmlDocument(buildOrderCardHtml(orders))
 }
 
 const JPEG_QUALITY = 0.85
@@ -157,7 +192,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines
 }
 
-export async function renderOrderCardJpeg(order: DispatchOrder): Promise<string> {
+async function renderSingleOrderJpeg(order: DispatchOrder): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = CARD_W
   canvas.height = CARD_H
@@ -301,6 +336,141 @@ export async function renderOrderCardJpeg(order: DispatchOrder): Promise<string>
   ctx.fillText('Glass Beads WMS — Confidential', PAD, y)
 
   return canvas.toDataURL('image/jpeg', JPEG_QUALITY)
+}
+
+function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let t = text
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxWidth) t = t.slice(0, -1)
+  return `${t}…`
+}
+
+// Compact repeating-row layout for a real multi-item order — unlike the single-order hero layout,
+// text is truncated (not wrapped) to a fixed row height so the canvas height can be computed
+// upfront from orders.length before any drawing happens (canvas dimensions must be set before
+// content is drawn, and resizing clears it).
+async function renderGroupOrderJpeg(orders: DispatchOrder[]): Promise<string> {
+  const PAD = 48
+  const HEADER_H = 130
+  const DELIVER_H = 34 + 38 + 12
+  const ROW_H = 96
+  const FOOTER_H = 70
+  const cardH = HEADER_H + 50 + DELIVER_H + orders.length * ROW_H + FOOTER_H
+
+  const canvas = document.createElement('canvas')
+  canvas.width = CARD_W
+  canvas.height = cardH
+  const ctx = canvas.getContext('2d')!
+  ctx.textBaseline = 'alphabetic'
+
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, CARD_W, cardH)
+
+  ctx.fillStyle = '#1a1a1a'
+  ctx.fillRect(0, 0, CARD_W, HEADER_H)
+  ctx.fillStyle = '#ffffff'
+  ctx.font = 'bold 34px Arial, sans-serif'
+  ctx.fillText('Glass Beads WMS', PAD, 62)
+  ctx.font = '18px Arial, sans-serif'
+  ctx.fillStyle = '#cccccc'
+  ctx.fillText('Dispatch Order', PAD, 90)
+  ctx.font = 'bold 20px "Courier New", monospace'
+  ctx.fillStyle = '#ffffff'
+  const idText = truncateText(ctx, orders.map(o => `DIS-${o.id}`).join(', '), CARD_W - PAD * 2 - 200)
+  ctx.fillText(idText, CARD_W - PAD - ctx.measureText(idText).width, 62)
+  ctx.font = '14px Arial, sans-serif'
+  ctx.fillStyle = '#cccccc'
+  const dateText = formatDate(orders[0].created_at)
+  ctx.fillText(dateText, CARD_W - PAD - ctx.measureText(dateText).width, 88)
+
+  let y = HEADER_H + 50
+
+  ctx.fillStyle = '#888888'
+  ctx.font = 'bold 13px Arial, sans-serif'
+  ctx.fillText('DELIVER TO', PAD, y)
+  y += 34
+  ctx.fillStyle = '#1a1a1a'
+  ctx.font = 'bold 32px Arial, sans-serif'
+  ctx.fillText(truncateText(ctx, orders[0].customer_name, CARD_W - PAD * 2), PAD, y)
+  y += 50
+
+  const PHOTO_SIZE = 64
+  for (const o of orders) {
+    if (o.item_image) {
+      try {
+        const img = await loadImage(o.item_image)
+        const side = Math.min(img.width, img.height)
+        const sx = (img.width - side) / 2
+        const sy = (img.height - side) / 2
+        ctx.save()
+        const r = 10
+        ctx.beginPath()
+        ctx.moveTo(PAD + r, y)
+        ctx.arcTo(PAD + PHOTO_SIZE, y, PAD + PHOTO_SIZE, y + PHOTO_SIZE, r)
+        ctx.arcTo(PAD + PHOTO_SIZE, y + PHOTO_SIZE, PAD, y + PHOTO_SIZE, r)
+        ctx.arcTo(PAD, y + PHOTO_SIZE, PAD, y, r)
+        ctx.arcTo(PAD, y, PAD + PHOTO_SIZE, y, r)
+        ctx.closePath()
+        ctx.clip()
+        ctx.drawImage(img, sx, sy, side, side, PAD, y, PHOTO_SIZE, PHOTO_SIZE)
+        ctx.restore()
+      } catch {
+        // fall through — leave blank if the photo fails to load
+      }
+    } else {
+      ctx.strokeStyle = '#cccccc'
+      ctx.setLineDash([4, 4])
+      ctx.strokeRect(PAD, y, PHOTO_SIZE, PHOTO_SIZE)
+      ctx.setLineDash([])
+    }
+
+    const textX = PAD + PHOTO_SIZE + 20
+    const bagsColW = 110
+    const textWidth = CARD_W - PAD - bagsColW - textX
+    ctx.fillStyle = '#1a1a1a'
+    ctx.font = 'bold 18px Arial, sans-serif'
+    ctx.fillText(truncateText(ctx, o.color_name, textWidth), textX, y + 26)
+    ctx.fillStyle = '#888888'
+    ctx.font = '11px Arial, sans-serif'
+    const meta = `DIS-${o.id} · ${o.batch_number} · ${o.warehouse_name} · ${o.packing_size}`
+    ctx.fillText(truncateText(ctx, meta, textWidth), textX, y + 46)
+
+    ctx.fillStyle = '#1a1a1a'
+    ctx.font = 'bold 26px Arial, sans-serif'
+    const numText = String(o.bags_dispatched)
+    ctx.fillText(numText, CARD_W - PAD - ctx.measureText(numText).width, y + 30)
+    ctx.fillStyle = '#888888'
+    ctx.font = 'bold 9px Arial, sans-serif'
+    const lblText = 'BAGS'
+    ctx.fillText(lblText, CARD_W - PAD - ctx.measureText(lblText).width, y + 44)
+
+    y += PHOTO_SIZE
+    ctx.strokeStyle = '#eeeeee'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(PAD, y + 16)
+    ctx.lineTo(CARD_W - PAD, y + 16)
+    ctx.stroke()
+    y += ROW_H - PHOTO_SIZE
+  }
+
+  y += 10
+  ctx.strokeStyle = '#dddddd'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(PAD, y)
+  ctx.lineTo(CARD_W - PAD, y)
+  ctx.stroke()
+  y += 26
+  ctx.fillStyle = '#aaaaaa'
+  ctx.font = '12px Arial, sans-serif'
+  ctx.fillText('Glass Beads WMS — Confidential', PAD, y)
+
+  return canvas.toDataURL('image/jpeg', JPEG_QUALITY)
+}
+
+export function renderOrderCardJpeg(orders: DispatchOrder[]): Promise<string> {
+  return orders.length === 1 ? renderSingleOrderJpeg(orders[0]) : renderGroupOrderJpeg(orders)
 }
 
 export async function shareOrderCard(dataUri: string, filename: string): Promise<void> {

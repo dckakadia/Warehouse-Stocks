@@ -36,11 +36,11 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
   const [pickingSearch, setPickingSearch] = useState('')
-  const [confirmPickId, setConfirmPickId] = useState<number | null>(null)
+  const [confirmGroup, setConfirmGroup] = useState<DispatchOrder[] | null>(null)
   const { toasts, add: toast } = useToast()
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null)
   const [pendingCrop, setPendingCrop] = useState<{ file: File; onDone: (uri: string) => void } | null>(null)
-  const [sharingId, setSharingId] = useState<number | null>(null)
+  const [sharingKey, setSharingKey] = useState<string | null>(null)
 
   // Inward form
   const [iColor, setIColor] = useState('')
@@ -189,25 +189,32 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
     return () => { cancelled = true }
   }, [tFromWid, tColor, refreshSig, refreshEntity])
 
-  const confirmPick = async (id: number) => {
+  const confirmPick = async (group: DispatchOrder[]) => {
     try {
-      await api.confirmPickedOrder(id)
-      toast('Order marked as Picked ✓', 'ok')
+      if (group.length === 1) {
+        await api.confirmPickedOrder(group[0].id)
+      } else {
+        await api.confirmPickedOrderGroup(group[0].order_group!)
+      }
+      toast(group.length === 1 ? 'Order marked as Picked ✓' : `${group.length} items marked as Picked ✓`, 'ok')
       loadOrders()
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Error', 'err')
     }
   }
 
-  const shareOrder = async (o: DispatchOrder) => {
-    setSharingId(o.id)
+  const orderGroupKey = (group: DispatchOrder[]) => group.length === 1 ? `s-${group[0].id}` : `g-${group[0].order_group}`
+
+  const shareOrder = async (group: DispatchOrder[]) => {
+    setSharingKey(orderGroupKey(group))
     try {
-      const jpeg = await renderOrderCardJpeg(o)
-      await shareOrderCard(jpeg, `dispatch-order-DIS-${o.id}`)
+      const jpeg = await renderOrderCardJpeg(group)
+      const filename = group.length === 1 ? `dispatch-order-DIS-${group[0].id}` : `dispatch-order-DIS-${group[0].id}-group`
+      await shareOrderCard(jpeg, filename)
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Failed to share order', 'err')
     }
-    setSharingId(null)
+    setSharingKey(null)
   }
 
   const openEditBatch = (b: InwardBatch) => {
@@ -372,6 +379,21 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
     )
   }, [orders, pickingSearch])
 
+  // Rows created together via the "Create Dispatch Order" cart share a non-null order_group (see
+  // server/db.ts) — grouped here into one card with one set of actions. Rows with no group (every
+  // pre-existing order, and any single-line dispatch) each form their own group of one, rendering
+  // exactly as before.
+  const groupedOrders = useMemo(() => {
+    const map = new Map<string, DispatchOrder[]>()
+    for (const o of filteredOrders) {
+      const key = o.order_group != null ? `g-${o.order_group}` : `s-${o.id}`
+      const arr = map.get(key)
+      if (arr) arr.push(o)
+      else map.set(key, [o])
+    }
+    return [...map.entries()].map(([key, group]) => ({ key, group }))
+  }, [filteredOrders])
+
   return (
     <main className="max-w-xl mx-auto px-4 py-6 w-full">
       <div className={`grid gap-2 mb-6 ${isManager ? 'grid-cols-4' : canEdit ? 'grid-cols-3' : 'grid-cols-1'}`}>
@@ -431,54 +453,83 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
           {!loadingOrders && !pageError && orders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No pending orders</p>}
           {!loadingOrders && !pageError && orders.length > 0 && filteredOrders.length === 0 && <p className="text-center text-gray-500 py-10 text-sm">No orders match your search</p>}
           <div className="space-y-3">
-            {!pageError && filteredOrders.map(o => (
-              <div key={o.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
-                <div className="flex items-start gap-3">
-                  {o.item_image && (
-                    <img src={o.item_image} alt={o.color_name}
-                      className="w-14 h-14 object-cover rounded-lg border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
-                      onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-gray-500 font-mono">DIS-{o.id}</span>
-                        <span className={`text-xs border px-1.5 py-0.5 rounded ${whColor(o.warehouse_id)}`}>
-                          {o.warehouse_name}
-                        </span>
+            {!pageError && groupedOrders.map(({ key, group }) => {
+              const first = group[0]
+              return (
+                <div key={key} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
+                  {group.length === 1 ? (
+                    <div className="flex items-start gap-3">
+                      {first.item_image && (
+                        <img src={first.item_image} alt={first.color_name}
+                          className="w-14 h-14 object-cover rounded-lg border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                          onClick={() => setLightbox({ src: first.item_image!, title: first.color_name })} />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between mb-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-gray-500 font-mono">DIS-{first.id}</span>
+                            <span className={`text-xs border px-1.5 py-0.5 rounded ${whColor(first.warehouse_id)}`}>
+                              {first.warehouse_name}
+                            </span>
+                          </div>
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded border flex-shrink-0 bg-gray-700/60 text-gray-300 border-gray-600">
+                            {first.packing_size}
+                          </span>
+                        </div>
+                        <h3 className="text-sm font-bold text-white mb-1">{first.color_name}</h3>
+                        <div className="flex items-center justify-between text-xs text-gray-400">
+                          <span><Ic.Hash />{first.batch_number}</span>
+                          <span className="text-white font-bold text-sm">{first.bags_dispatched} bags</span>
+                        </div>
                       </div>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded border flex-shrink-0 bg-gray-700/60 text-gray-300 border-gray-600">
-                        {o.packing_size}
-                      </span>
                     </div>
-                    <h3 className="text-sm font-bold text-white mb-1">{o.color_name}</h3>
-                    <div className="flex items-center justify-between text-xs text-gray-400">
-                      <span><Ic.Hash />{o.batch_number}</span>
-                      <span className="text-white font-bold text-sm">{o.bags_dispatched} bags</span>
+                  ) : (
+                    <div className="space-y-2.5 mb-1">
+                      {group.map(o => (
+                        <div key={o.id} className="flex items-center gap-3">
+                          {o.item_image && (
+                            <img src={o.item_image} alt={o.color_name}
+                              className="w-11 h-11 object-cover rounded-lg border border-gray-700 flex-shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity"
+                              onClick={() => setLightbox({ src: o.item_image!, title: o.color_name })} />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <h3 className="text-sm font-bold text-white truncate">{o.color_name}</h3>
+                              <span className="text-white font-bold text-sm flex-shrink-0">{o.bags_dispatched} bags</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap mt-0.5 text-xs text-gray-400">
+                              <span className="text-gray-500 font-mono">DIS-{o.id}</span>
+                              <span className={`border px-1.5 py-0.5 rounded ${whColor(o.warehouse_id)}`}>{o.warehouse_name}</span>
+                              <span><Ic.Hash />{o.batch_number}</span>
+                              <span className="text-gray-500">{o.packing_size}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-2.5 border-t border-gray-700">
-                  <span className="text-xs text-gray-400">Customer: <span className="text-gray-200">{o.customer_name}</span></span>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => printOrderCard(o)} title="Print / Save as PDF"
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
-                      <Ic.Print />
-                    </button>
-                    <button onClick={() => shareOrder(o)} disabled={sharingId === o.id} title="Share as JPG"
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded-lg text-xs font-medium transition-colors">
-                      <Ic.Share />
-                    </button>
-                    {canEdit && (
-                      <button onClick={() => setConfirmPickId(o.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium transition-colors">
-                        <Ic.Check /> Confirm Picked
+                  )}
+                  <div className="flex items-center justify-between pt-2.5 border-t border-gray-700">
+                    <span className="text-xs text-gray-400">Customer: <span className="text-gray-200">{first.customer_name}</span></span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => printOrderCard(group)} title="Print / Save as PDF"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+                        <Ic.Print />
                       </button>
-                    )}
+                      <button onClick={() => shareOrder(group)} disabled={sharingKey === key} title="Share as JPG"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded-lg text-xs font-medium transition-colors">
+                        <Ic.Share />
+                      </button>
+                      {canEdit && (
+                        <button onClick={() => setConfirmGroup(group)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium transition-colors">
+                          <Ic.Check /> Confirm Picked
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>
       )}
@@ -928,13 +979,15 @@ export default function WarehouseApp({ refreshSig, refreshEntity, canEdit, isMan
         ))}
       </div>
 
-      {confirmPickId !== null && (
+      {confirmGroup && (
         <ConfirmDialog
-          message={`Mark order DIS-${confirmPickId} as Picked?`}
+          message={confirmGroup.length === 1
+            ? `Mark order DIS-${confirmGroup[0].id} as Picked?`
+            : `Mark ${confirmGroup.length} items (${confirmGroup.map(o => `DIS-${o.id}`).join(', ')}) as Picked?`}
           confirmLabel="Confirm Picked"
           danger={false}
-          onConfirm={() => { confirmPick(confirmPickId); setConfirmPickId(null) }}
-          onCancel={() => setConfirmPickId(null)}
+          onConfirm={() => { confirmPick(confirmGroup); setConfirmGroup(null) }}
+          onCancel={() => setConfirmGroup(null)}
         />
       )}
 

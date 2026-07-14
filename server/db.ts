@@ -125,6 +125,11 @@ try { db.exec("ALTER TABLE app_users ADD COLUMN can_view_report    INTEGER NOT N
 // Add gst_number to customers/suppliers if not present (existing DB)
 try { db.exec("ALTER TABLE customers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
 try { db.exec("ALTER TABLE suppliers ADD COLUMN gst_number TEXT NOT NULL DEFAULT ''") } catch { /* already exists */ }
+// Add order_group to dispatch_orders if not present (existing DB) — NULL means "not part of a
+// multi-line cart order" (every pre-existing row, and every future single-line POST /dispatch
+// row); rows created together via POST /dispatch/bulk share a non-NULL value (the first row's own
+// id) so the Picking list can render them as one card with one Confirm Picked/Print/Share action.
+try { db.exec("ALTER TABLE dispatch_orders ADD COLUMN order_group INTEGER DEFAULT NULL") } catch { /* already exists */ }
 // Add batch_image to batches if not present (existing DB) — one-time backfill from the item's
 // shared image, since that's the best available guess for what each batch used to show before
 // images became batch-specific. Only runs the backfill the moment the column is first added,
